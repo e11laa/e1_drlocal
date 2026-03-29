@@ -48,11 +48,11 @@ class WebFetchTool(BaseTool):
                         text = text[:limit] + "\n\n[... 以降省略 ...]"
                     return text
                 else:
-                    # エラーメッセージが大量に出てしまうのを防ぐため、サイレントにフォールバック
+                    # HTTPエラー時はフォールバックへ
                     pass
-            except Exception:
-                # 失敗時は例外も握りつぶし、そのままBeautifulSoupでの取得へ進む
-                pass
+            except requests.RequestException as e:
+                # ネットワーク例外の場合は原因をログ出ししてフォールバックへ進む
+                print(f"   [WebFetch] Jina API Timeout/Error ({url}), falling back to direct fetch.")
 
             # === 2. フォールバック: 標準のHTML取得とBeautifulSoup ===
             resp = requests.get(url, headers=headers, timeout=FETCH_TIMEOUT)
@@ -70,9 +70,13 @@ class WebFetchTool(BaseTool):
 
                 text = soup.get_text(separator="\n", strip=True)
             except ImportError:
-                # BeautifulSoup が無い場合は生テキスト
+                # BeautifulSoup が無い場合は正規表現でフォールバック
                 import re
-                text = re.sub(r"<[^>]+>", "", resp.text)
+                text = resp.text
+                # scriptとstyleタグの中身（JavaScriptやCSSのコード）を先に消去
+                text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL)
+                # 残りのHTMLタグを消去
+                text = re.sub(r"<[^>]+>", "", text)
                 text = re.sub(r"\s+", " ", text).strip()
 
             # テキストが長すぎる場合は切り詰め

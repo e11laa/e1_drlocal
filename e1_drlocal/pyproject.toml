@@ -10,6 +10,7 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "pydantic>=2.0.0",
     "tenacity>=8.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
@@ -23,7 +24,3 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/e1_drlocal"]
 
-[tool.uv]
-required-environments = [
-    "sys_platform == 'win32' and platform_machine == 'AMD64'"
-]

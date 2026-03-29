@@ -684,6 +684,9 @@ class DeepResearchFlow(Flow[ResearchState]):
 # ==========================================
 def kickoff():
     """crewai flow kickoff / uv run kickoff から呼ばれるエントリポイント"""
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     parser = argparse.ArgumentParser(description="Deep Research (CrewAI Flows)")
 
     parser.add_argument(
