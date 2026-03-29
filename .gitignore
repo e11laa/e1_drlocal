@@ -1,0 +1,42 @@
+# 仮想環境と環境変数（現在の設定）
+.venv/
+.env
+
+# Pythonのコンパイル済みキャッシュファイル
+__pycache__/
+*.pyc
+*.pyo
+
+# Deep Researchスクリプトが生成するレポートフォルダ
+research_reports/
+
+archived/
+plan-logs/
+
+# OS固有のファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE・エディタ設定
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Hatch / Build 関連 (pyproject.toml で hatchling を使用しているため)
+dist/
+build/
+.hatch/
+*.egg-info/
+
+# Python テスト・静的解析キャッシュ
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# プロジェクト固有のバックアップ・一時ファイル
+*.bundle
+*.tmp
