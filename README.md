@@ -1,6 +1,6 @@
 # e1_drlocal
 
-[日本語](README-ja.md)
+[日本語版の説明はこちら！！！！！！！](README-ja.md)
 
 *This project is being developed with the assistance of Google Antigravity.*
 
