@@ -22,6 +22,26 @@ class WebFetchTool(BaseTool):
         "HTML タグを除去した本文テキストを返す。"
     )
     args_schema: Type[BaseModel] = WebFetchInput
+    
+    def _truncate_text(self, text: str, limit: int) -> str:
+        """指定文字数制限手前の「句点」や「改行」でセマンティックに切り詰める"""
+        if len(text) <= limit:
+            return text
+            
+        # 制限文字数から遡って、句点や改行を探す
+        # 日本語(。)、英語(.)、改行(\n)
+        truncated = text[:limit]
+        last_punct = -1
+        for punct in ["\n", "。", "."]:
+            pos = truncated.rfind(punct)
+            if pos > last_punct:
+                last_punct = pos
+        
+        # 句点が見つかった場合、その直後で切る。見つからない場合は物理カットのフォールバック
+        if last_punct != -1:
+            return text[:last_punct + 1] + "\n\n[... セマンティックに切り詰め ...]"
+        else:
+            return text[:limit] + "\n\n[... 以降省略 ...]"
 
     def _run(self, url: str) -> str:
         """URL からコンテンツを取得してテキスト化する"""
@@ -43,9 +63,7 @@ class WebFetchTool(BaseTool):
                 jina_url = f"https://r.jina.ai/{url}"
                 jina_resp = requests.get(jina_url, headers=headers, timeout=FETCH_TIMEOUT)
                 if jina_resp.status_code == 200:
-                    text = jina_resp.text
-                    if len(text) > limit:
-                        text = text[:limit] + "\n\n[... 以降省略 ...]"
+                    text = self._truncate_text(jina_resp.text, limit)
                     return text
                 else:
                     # HTTPエラー時はフォールバックへ
@@ -80,8 +98,7 @@ class WebFetchTool(BaseTool):
                 text = re.sub(r"\s+", " ", text).strip()
 
             # テキストが長すぎる場合は切り詰め
-            if len(text) > limit:
-                text = text[:limit] + "\n\n[... 以降省略 ...]"
+            text = self._truncate_text(text, limit)
 
             return text
 

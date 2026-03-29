@@ -194,13 +194,13 @@ docker run -d -p 8081:8080 -e "BASE_URL=http://localhost:8081/" -e "INSTANCE_NAM
 ```
 
 ### 3. Installation
-Clone the repository and install the project dependencies.
+Clone the repository and install the project dependencies. `uv` will automatically manage the Python environment for you.
 
 ```bash
-# Using uv
 cd e1_drlocal
 uv sync
 ```
+*Note: If you are on Linux or macOS and see a resolution error, please update `tool.uv.required-environments` in `pyproject.toml` to match your platform or remove that section.*
 
 ### 4. Environment Variables
 Create a `.env` file in the project root or `e1_drlocal/` directory and set the necessary API keys.

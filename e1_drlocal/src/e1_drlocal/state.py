@@ -25,3 +25,4 @@ class ResearchState(BaseModel):
     missing_dimensions: List[str] = Field(default_factory=list)
     suggested_queries: List[str] = Field(default_factory=list)
     execution_times: dict = Field(default_factory=dict)
+    cli_args: dict = Field(default_factory=dict)

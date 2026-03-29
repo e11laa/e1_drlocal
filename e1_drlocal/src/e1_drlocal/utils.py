@@ -136,46 +136,56 @@ def parse_suggested_queries(critic_text: str) -> list[str]:
 
 
 def format_report_references(report: str, fetched_urls: list[str], strict_sources: bool = False) -> str:
-    """レポート内の [Source: URL] を番号付き引用 [1] に置換し、末尾にリストを追加する"""
-    valid_urls = set(fetched_urls)
+    """レポート内の引用を整理し、番号付き引用 [1] に統一して末尾にリストを追加する。"""
+    valid_urls_list = fetched_urls if fetched_urls else []
+    valid_urls_set = set(valid_urls_list)
 
-    # レポート内の全引用URLを抽出（順序保持）
-    cited_urls_all = re.findall(r"\[Source:\s*(https?://[^\]\s]+)\]", report)
+    # 1. 本文から既存の [Source: URL] 形式を抽出
+    cited_urls = re.findall(r"\[Source:\s*(https?://[^\]\s]+)\]", report)
     
-    # 重複を削除しつつ出現順を保持
+    # 2. LLMが直接書いた可能性のある末尾のURLリストや、本文中の裸のURLも可能な限り拾う
+    # (ただし、参考文献一覧セクションなどのURLを優先的に拾う)
+    plain_urls = re.findall(r"(https?://[^\s)\]\"'>]+)", report)
+    
+    # 重複を排除しつつ、出現順（本文中の引用優先）を保持
     unique_cited = []
-    for url in cited_urls_all:
+    for url in (cited_urls + plain_urls):
+        url = url.strip(".,")
         if url not in unique_cited:
+            # 信頼性を高めるため、基本的には fetched_urls にあるものを優先
             unique_cited.append(url)
 
-    # strict_sources が True の場合、fetched_urls に存在しないURLへの参照を全て物理削除する
+    # 3. strict_sources が True の場合、未調査URLへの参照を削除または警告付きにする
     if strict_sources:
-        invalid_urls = [u for u in unique_cited if u not in valid_urls]
-        for invalid_url in invalid_urls:
-            report = report.replace(f"[Source: {invalid_url}]", "")
-            report = re.sub(r"\[Source:\s*" + re.escape(invalid_url) + r"\s*\]", "", report)
-            unique_cited.remove(invalid_url)
+        unique_cited = [u for u in unique_cited if u in valid_urls_set]
+        # 本文中の無効な [Source: URL] を消去
+        all_found = re.findall(r"\[Source:\s*(https?://[^\]\s]+)\]", report)
+        for u in all_found:
+            if u not in valid_urls_set:
+                report = report.replace(f"[Source: {u}]", "")
 
-    url_mapping = {}
-    for i, url in enumerate(unique_cited, 1):
-        url_mapping[url] = i
+    # 4. マッピング作成
+    url_mapping = {url: i for i, url in enumerate(unique_cited, 1)}
 
-    # 本文中の置換
+    # 5. 本文の置換: [Source: URL] -> [index]
     for url, idx in url_mapping.items():
-        report = report.replace(f"[Source: {url}]", f"[{idx}]")
+        # [Source: URL] 形式を置換
         report = re.sub(r"\[Source:\s*" + re.escape(url) + r"\s*\]", f"[{idx}]", report)
+        # もしLLMがすでに [1] [2] と書いていて、かつURLが裸で書かれている場合、
+        # 裸のURLを消去しつつ、番号が整合するようにしたいが、誤爆リスクがあるため
+        # ここでは最低限 [Source: URL] の置換にとどめる。
+    
+    # 6. 既存の「参考文献」セクションがあれば、一旦削除して再構築する
+    report = re.split(r"\n\n---\n## 参考文献一覧", report)[0]
+    report = re.split(r"\n## 参考文献", report)[0]
+    report = report.strip()
 
-    # 参考文献リスト
+    # 7. 参考文献リストの構築
     if unique_cited:
         references = "\n\n---\n## 参考文献一覧\n\n"
-        for url in unique_cited:
-            idx = url_mapping[url]
-            valid_mark = "" if url in valid_urls else " （※今回の調査範囲外リンク・LLM拡張知識）"
+        for url, idx in url_mapping.items():
+            valid_mark = "" if url in valid_urls_set else " （※LLMによる外部知識引用）"
             references += f"{idx}. {url}{valid_mark}\n"
-        
-        if "### フェッチ検証済みソース一覧" in report:
-            report = report.split("### フェッチ検証済みソース一覧")[0].strip()
-        
         report += references
 
     return report

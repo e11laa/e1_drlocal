@@ -1,0 +1,112 @@
+2026-03-30 00:04:14,666 [INFO] 
+🚀 Deep Research (CrewAI Flows) 起動 - 2026年03月30日 00:04
+2026-03-30 00:04:20,580 [INFO] 
+🔍 [Planner] リサーチプランを策定中... (Loop 1)
+2026-03-30 00:04:31,781 [INFO] 
+   📋 生成クエリ (3件): ['osechi ryori history origin timeline traditional history', 'osechi ryori development creation nutritional culture celebration habit', 'osechi trend evolution change prediction expert tradition inheritance']
+2026-03-30 00:04:31,783 [INFO] 
+🌐 [Researcher] マルチソース並列コンテキスト抽出...
+2026-03-30 00:04:31,784 [INFO] 
+   🔎 クエリ 1/3: osechi ryori history origin timeline traditional history
+2026-03-30 00:04:31,784 [INFO] 
+   🔎 クエリ 2/3: osechi ryori development creation nutritional culture celebration habit
+2026-03-30 00:04:31,785 [INFO] 
+   🔎 クエリ 3/3: osechi trend evolution change prediction expert tradition inheritance
+2026-03-30 00:04:37,172 [INFO]    ⚖️ [Reranker] 20件の結果から最適なソースを選別中...
+2026-03-30 00:04:37,328 [INFO]    ⚖️ [Reranker] 20件の結果から最適なソースを選別中...
+2026-03-30 00:04:37,832 [INFO]    ⚖️ [Reranker] 20件の結果から最適なソースを選別中...
+2026-03-30 00:04:44,139 [INFO]    ✅ [Reranker] 選別完了: 4件をフェッチ対象に決定
+2026-03-30 00:04:44,548 [INFO]    ✅ [Reranker] 選別完了: 1件をフェッチ対象に決定
+2026-03-30 00:04:45,260 [INFO]    ✅ [Reranker] 選別完了: 3件をフェッチ対象に決定
+2026-03-30 00:04:47,456 [INFO]    ⚖️ [Reranker] 20件の結果から最適なソースを選別中...
+2026-03-30 00:04:48,766 [INFO]    ✅ [Reranker] 選別完了: 3件をフェッチ対象に決定
+2026-03-30 00:04:53,702 [INFO] 
+⚖️ [Reviewer] 厳格な品質検証... (Loop 1)
+2026-03-30 00:05:02,018 [INFO] 
+   📋 Reviewer推奨クエリ: ['osechi ryori future trends 2024 2025 2030', 'osechi ryori expert opinion future', 'osechi ryori adaptation modern lifestyle', 'osechi ryori global comparison', 'osechi ryori popularity decline', 'osechi ryori changing ingredients', 'osechi ryori online ordering future', 'osechi ryori food safety future']
+2026-03-30 00:05:02,019 [INFO] 
+   判定: FAIL ❌ (Loop 1/3)
+2026-03-30 00:05:02,020 [INFO] 
+   🔄 追加調査が必要。Planner へ差し戻します。
+2026-03-30 00:05:02,021 [INFO] 
+🔍 [Planner] リサーチプランを策定中... (Loop 2)
+2026-03-30 00:05:02,022 [INFO]    ⚡ Reviewer推奨クエリを直接採用 (8件)
+2026-03-30 00:05:02,023 [INFO] 
+🌐 [Researcher] マルチソース並列コンテキスト抽出...
+2026-03-30 00:05:02,024 [INFO] 
+   🔎 クエリ 1/6: osechi ryori future trends 2024 2025 2030
+2026-03-30 00:05:02,024 [INFO] 
+   🔎 クエリ 2/6: osechi ryori expert opinion future
+2026-03-30 00:05:02,025 [INFO] 
+   🔎 クエリ 3/6: osechi ryori adaptation modern lifestyle
+2026-03-30 00:05:07,025 [INFO]    ⚖️ [Reranker] 19件の結果から最適なソースを選別中...
+2026-03-30 00:05:07,418 [INFO]    ⚖️ [Reranker] 20件の結果から最適なソースを選別中...
+2026-03-30 00:05:07,466 [INFO]    ⚖️ [Reranker] 20件の結果から最適なソースを選別中...
+2026-03-30 00:05:13,430 [INFO]    ✅ [Reranker] 選別完了: 1件をフェッチ対象に決定
+2026-03-30 00:05:13,844 [INFO]    ✅ [Reranker] 選別完了: 1件をフェッチ対象に決定
+2026-03-30 00:05:14,331 [INFO]    ✅ [Reranker] 選別完了: 1件をフェッチ対象に決定
+2026-03-30 00:05:17,982 [INFO] 
+   🔎 クエリ 4/6: osechi ryori global comparison
+2026-03-30 00:05:20,695 [INFO] 
+   🔎 クエリ 5/6: osechi ryori popularity decline
+2026-03-30 00:05:21,353 [INFO]    ⚖️ [Reranker] 19件の結果から最適なソースを選別中...
+2026-03-30 00:05:25,104 [INFO]    ⚖️ [Reranker] 19件の結果から最適なソースを選別中...
+2026-03-30 00:05:26,220 [INFO]    ✅ [Reranker] 選別完了: 1件をフェッチ対象に決定
+2026-03-30 00:05:27,769 [WARNING]    ⚠️ [Reranker] 有効なURLが選別されませんでした。上位のみを採用します。
+2026-03-30 00:05:33,183 [INFO] 
+   🔎 クエリ 6/6: osechi ryori changing ingredients
+2026-03-30 00:05:37,481 [INFO]    ⚖️ [Reranker] 19件の結果から最適なソースを選別中...
+2026-03-30 00:05:43,726 [INFO]    ✅ [Reranker] 選別完了: 1件をフェッチ対象に決定
+2026-03-30 00:05:52,126 [INFO] 
+⚖️ [Reviewer] 厳格な品質検証... (Loop 2)
+2026-03-30 00:06:00,547 [INFO] 
+   判定: PASS ✅ (Loop 2/3)
+2026-03-30 00:06:00,550 [INFO] 
+🏗️ [Outliner] レポート構成を設計中...
+2026-03-30 00:06:08,971 [INFO] 
+   📑 章構成: CHAPTER: が 8回出現
+2026-03-30 00:06:08,972 [INFO] 
+📝 [Writer] 最終レポート執筆開始...
+2026-03-30 00:06:08,973 [INFO]    📑 8章を段階的に並列執筆します
+2026-03-30 00:06:08,973 [INFO]    📑 8章を段階的に並列執筆します
+2026-03-30 00:06:08,974 [INFO]    ⚙️ 8章を最大 1 並列で段階的に執筆します (レートリミット回避)
+2026-03-30 00:06:08,974 [INFO] 
+  📖 章 1/8: 1 序論：おせち料理の歴史と現代における意義... (執筆開始)
+2026-03-30 00:06:18,954 [INFO]   🏁 章 1 執筆完了
+2026-03-30 00:06:18,954 [INFO] 
+  📖 章 2/8: 2 伝統的なおせち料理の起源と発展... (執筆開始)
+2026-03-30 00:06:27,442 [INFO]   🏁 章 2 執筆完了
+2026-03-30 00:06:27,442 [INFO] 
+  📖 章 3/8: 伝統的なおせち料理の構成と文化的意義... (執筆開始)
+2026-03-30 00:06:34,070 [INFO]   🏁 章 3 執筆完了
+2026-03-30 00:06:34,070 [INFO] 
+  📖 章 4/8: 現代におけるおせち料理の変化と多様化... (執筆開始)
+2026-03-30 00:06:43,554 [INFO]   🏁 章 4 執筆完了
+2026-03-30 00:06:43,554 [INFO] 
+  📖 章 5/8: おせち料理の現代的な課題と未来展望... (執筆開始)
+2026-03-30 00:06:54,378 [INFO]   🏁 章 5 執筆完了
+2026-03-30 00:06:54,378 [INFO] 
+  📖 章 6/8: おせち料理のグローバルな展開と普及状況... (執筆開始)
+2026-03-30 00:07:02,172 [INFO]   🏁 章 6 執筆完了
+2026-03-30 00:07:02,173 [INFO] 
+  📖 章 7/8: おせち料理の進化と現代の技術の活用... (執筆開始)
+2026-03-30 00:07:09,379 [INFO]   🏁 章 7 執筆完了
+2026-03-30 00:07:09,380 [INFO] 
+  📖 章 8/8: おせち料理の地域差と消費の変化... (執筆開始)
+2026-03-30 00:07:19,880 [INFO]   🏁 章 8 執筆完了
+2026-03-30 00:07:19,881 [INFO] 
+  🔗 統合パス: 8章を1つのレポートに統合...
+2026-03-30 00:07:37,834 [INFO] 
+🔎 [SourceValidator] ソース信頼性の検証と引用スタイル変換中...
+2026-03-30 00:07:37,839 [INFO] 
+✨ レポート完成: research_reports\Report_20260330_0004_crewai.md
+2026-03-30 00:07:37,839 [INFO] ============================================================
+2026-03-30 00:07:37,840 [INFO] 
+📊 実行統計:
+2026-03-30 00:07:37,840 [INFO]    - 文字数: 3525字
+2026-03-30 00:07:37,840 [INFO]    - Planner: 11.20秒
+2026-03-30 00:07:37,840 [INFO]    - Researcher: 72.02秒
+2026-03-30 00:07:37,840 [INFO]    - Reviewer: 16.74秒
+2026-03-30 00:07:37,840 [INFO]    - Outliner: 8.42秒
+2026-03-30 00:07:37,841 [INFO]    - Writer: 88.86秒
+2026-03-30 00:07:37,841 [INFO]    - 合計: 197.2秒

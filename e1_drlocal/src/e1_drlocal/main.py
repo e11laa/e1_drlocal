@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import concurrent.futures
 import datetime
+import logging
 import os
 import re
 import sys
@@ -72,7 +73,44 @@ class DeepResearchFlow(Flow[ResearchState]):
             worker_model=worker_model,
             writer_model=writer_model,
         )
+        self.timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
         self.current_time = datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M")
+        self._setup_logging()
+
+    def _setup_logging(self):
+        """タイムスタンプ付きのログファイルをセットアップ"""
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"Log_{self.timestamp}.log")
+
+        # 固定の名前を使用することで、ツール側からも getLogger("e1_drlocal") で参照可能にする
+        self.logger = logging.getLogger("e1_drlocal")
+        self.logger.setLevel(logging.INFO)
+
+        # ハンドラ設定（重複防止のためクリア）
+        if self.logger.hasHandlers():
+            self.logger.handlers.clear()
+
+        # ファイル出力用
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        self.logger.addHandler(file_handler)
+
+        # コンソール出力用（標準出力への重複を避けるため、既存のprintと棲み分けを検討）
+        # 今回はprintをそのまま生かしつつ、logger.info() でファイルにも記録する設計に。
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        self.logger.addHandler(console_handler)
+
+    def log(self, message, level="info"):
+        """コンソール表示とファイル記録を同時に行うラッパー"""
+        if level == "info":
+            # コンソールへの重複出力を防ぐため、StreamHandlerがある場合はloggerに任せる
+            self.logger.info(message)
+        elif level == "warning":
+            self.logger.warning(message)
+        elif level == "error":
+            self.logger.error(message)
 
     # ==========================================
     # 1. トピック受取（エントリポイント）
@@ -80,7 +118,7 @@ class DeepResearchFlow(Flow[ResearchState]):
     @start()
     def receive_topic(self):
         """ユーザからトピックを受け取り、State に設定する"""
-        print(f"\n🚀 Deep Research (CrewAI Flows) 起動 - {self.current_time}")
+        self.log(f"\n🚀 Deep Research (CrewAI Flows) 起動 - {self.current_time}")
 
         # kickoff(inputs={"topic": "..."}) から受け取る場合
         if self.state.topic:
@@ -115,11 +153,11 @@ class DeepResearchFlow(Flow[ResearchState]):
 
         self.state.loop_count += 1
         loop = self.state.loop_count
-        print(f"\n🔍 [Planner] リサーチプランを策定中... (Loop {loop})")
+        self.log(f"\n🔍 [Planner] リサーチプランを策定中... (Loop {loop})")
 
         # Reviewer 推奨クエリがあればバイパス
         if self.state.suggested_queries and loop > 1:
-            print(f"   ⚡ Reviewer推奨クエリを直接採用 ({len(self.state.suggested_queries)}件)")
+            self.log(f"   ⚡ Reviewer推奨クエリを直接採用 ({len(self.state.suggested_queries)}件)")
             self.state.queries = self.state.suggested_queries[:6]
             self.state.suggested_queries = []
             return self.state.queries
@@ -154,10 +192,10 @@ class DeepResearchFlow(Flow[ResearchState]):
                 self.state.research_plan = result.pydantic.research_plan
                 queries = result.pydantic.queries
                 if not queries:
-                    print("   ⚠️ Pydanticでクエリが空だったためトピックをフォールバックします。")
+                    self.log("   ⚠️ Pydanticでクエリが空だったためトピックをフォールバックします。", level="warning")
                     queries = [self.state.topic]
                 self.state.queries = queries[:6]
-                print(f"\n   📋 [構造化抽出] 生成クエリ ({len(self.state.queries)}件): {self.state.queries}")
+                self.log(f"\n   📋 [構造化抽出] 生成クエリ ({len(self.state.queries)}件): {self.state.queries}")
                 
                 elapsed = time.time() - start_t
                 self.state.execution_times["Planner"] = self.state.execution_times.get("Planner", 0) + elapsed
@@ -183,12 +221,12 @@ class DeepResearchFlow(Flow[ResearchState]):
                 queries.append(cleaned)
         
         if not queries:
-            print("   ⚠️ クエリの抽出に失敗しました。トピック自体をフォールバッククエリとします。")
+            self.log("   ⚠️ クエリの抽出に失敗しました。トピック自体をフォールバッククエリとします。", level="warning")
             queries = [self.state.topic]
             
         self.state.queries = queries[:6]
 
-        print(f"\n   📋 生成クエリ ({len(self.state.queries)}件): {self.state.queries}")
+        self.log(f"\n   📋 生成クエリ ({len(self.state.queries)}件): {self.state.queries}")
         
         elapsed = time.time() - start_t
         self.state.execution_times["Planner"] = self.state.execution_times.get("Planner", 0) + elapsed
@@ -210,12 +248,12 @@ class DeepResearchFlow(Flow[ResearchState]):
     def _execute_researcher(self):
         """Researcher の共通実行ロジック: 並列エージェント実行"""
         start_t = time.time()
-        print(f"\n🌐 [Researcher] マルチソース並列コンテキスト抽出...")
+        self.log(f"\n🌐 [Researcher] マルチソース並列コンテキスト抽出...")
 
         all_results = []
         
         def _fetch_for_query(idx, query):
-            print(f"\n   🔎 クエリ {idx + 1}/{len(self.state.queries)}: {query}")
+            self.log(f"\n   🔎 クエリ {idx + 1}/{len(self.state.queries)}: {query}")
             
             @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
             def _kickoff_researcher():
@@ -314,7 +352,7 @@ class DeepResearchFlow(Flow[ResearchState]):
     def _execute_reviewer(self):
         """Reviewer の共通実行ロジック"""
         start_t = time.time()
-        print(f"\n⚖️ [Reviewer] 厳格な品質検証... (Loop {self.state.loop_count})")
+        self.log(f"\n⚖️ [Reviewer] 厳格な品質検証... (Loop {self.state.loop_count})")
 
         limit = REVIEW_DATA_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else REVIEW_DATA_LIMIT_LOCAL
         data_for_review = self.state.research_data[:limit]
@@ -334,7 +372,7 @@ class DeepResearchFlow(Flow[ResearchState]):
             result = _kickoff_reviewer()
             critic_text = result.raw if hasattr(result, "raw") else str(result)
         except Exception as e:
-            print(f"   ❌ Reviewer 実行エラー (リトライ上限到達): {e}")
+            self.log(f"   ❌ Reviewer 実行エラー (リトライ上限到達): {e}", level="error")
             critic_text = "FAIL ❌"
 
         # PASS/FAIL 判定
@@ -361,12 +399,12 @@ class DeepResearchFlow(Flow[ResearchState]):
         suggested = parse_suggested_queries(critic_text)
         self.state.suggested_queries = suggested
         if suggested and VERBOSE_STREAMING:
-            print(f"\n   📋 Reviewer推奨クエリ: {suggested}")
+            self.log(f"\n   📋 Reviewer推奨クエリ: {suggested}")
 
         self.state.reviewer_feedback = critic_text
 
         verdict = "PASS ✅" if self.state.is_sufficient else "FAIL ❌"
-        print(f"\n   判定: {verdict} (Loop {self.state.loop_count}/{MAX_LOOPS})")
+        self.log(f"\n   判定: {verdict} (Loop {self.state.loop_count}/{MAX_LOOPS})")
 
         elapsed = time.time() - start_t
         self.state.execution_times["Reviewer"] = self.state.execution_times.get("Reviewer", 0) + elapsed
@@ -389,10 +427,10 @@ class DeepResearchFlow(Flow[ResearchState]):
         """ルーティング判定ロジック"""
         if self.state.is_sufficient or self.state.loop_count >= MAX_LOOPS:
             if self.state.loop_count >= MAX_LOOPS and not self.state.is_sufficient:
-                print(f"\n   ⚠️ ループ上限 ({MAX_LOOPS}) に到達。Outliner へ進みます。")
+                self.log(f"\n   ⚠️ ループ上限 ({MAX_LOOPS}) に到達。Outliner へ進みます。", level="warning")
             return "sufficient"
         else:
-            print(f"\n   🔄 追加調査が必要。Planner へ差し戻します。")
+            self.log(f"\n   🔄 追加調査が必要。Planner へ差し戻します。")
             return "need_more_research"
 
     # ==========================================
@@ -402,7 +440,7 @@ class DeepResearchFlow(Flow[ResearchState]):
     def run_outliner(self):
         """品質 OK → レポート構成を設計"""
         start_t = time.time()
-        print("\n🏗️ [Outliner] レポート構成を設計中...")
+        self.log("\n🏗️ [Outliner] レポート構成を設計中...")
 
         limit = REVIEW_DATA_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else REVIEW_DATA_LIMIT_LOCAL
         data_for_outline = self.state.research_data[:limit]
@@ -420,12 +458,12 @@ class DeepResearchFlow(Flow[ResearchState]):
             result = _kickoff_outliner()
             raw_output = result.raw if hasattr(result, "raw") else str(result)
         except Exception as e:
-            print(f"   ❌ Outliner 実行エラー (リトライ上限到達): {e}")
+            self.log(f"   ❌ Outliner 実行エラー (リトライ上限到達): {e}", level="error")
             raw_output = ""
         self.state.outline = raw_output
 
         chapter_count = raw_output.count("CHAPTER:")
-        print(f"\n   📑 章構成: CHAPTER: が {chapter_count}回出現")
+        self.log(f"\n   📑 章構成: CHAPTER: が {chapter_count}回出現")
         
         elapsed = time.time() - start_t
         self.state.execution_times["Outliner"] = self.state.execution_times.get("Outliner", 0) + elapsed
@@ -438,20 +476,77 @@ class DeepResearchFlow(Flow[ResearchState]):
     def run_writer(self):
         """構成案に基づきレポートを執筆"""
         start_t = time.time()
-        print("\n📝 [Writer] 最終レポート執筆開始...")
+        self.log("\n📝 [Writer] 最終レポート執筆開始...")
 
         limit = REVIEW_DATA_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else REVIEW_DATA_LIMIT_LOCAL
         outline = self.state.outline
         research_data = self.state.research_data[:limit]
         chapters = parse_chapters(outline)
         
+        # 章ごとに執筆
+        self.log(f"   📑 {len(chapters)}章を段階的に並列執筆します")
+        chapter_drafts = [""] * len(chapters) # 結果格納用リスト
+
+        def _filter_relevant_data(chapter_title, full_data):
+            """章のタイトルに関連する研究データのみを抽出する（軽量モデルの混乱防止）"""
+            if not full_data:
+                return ""
+            sections = full_data.split("### 解析報告:")
+            relevant_sections = []
+            
+            # 章タイトルのキーワード抽出 (2文字以上の名詞的なもの)
+            keywords = [k for k in re.findall(r"[\w]{2,}", chapter_title) if len(k) > 1]
+            
+            for section in sections:
+                if not section.strip():
+                    continue
+                # キーワードが1つでも含まれていれば採用、または分量が少なければ全部送る
+                if any(k.lower() in section.lower() for k in keywords) or len(sections) <= 3:
+                    relevant_sections.append("### 解析報告:" + section)
+            
+            return "\n".join(relevant_sections) if relevant_sections else full_data
+
+        def _write_chapter(idx, chapter):
+            relevant_data = _filter_relevant_data(chapter['title'], research_data)
+            self.log(f"\n  📖 章 {idx + 1}/{len(chapters)}: {chapter['title'][:50]}... (執筆開始)")
+            write_instruction = (
+                f"レポート全体の構成：\n{outline}\n\n"
+                f"あなたは今、以下の章を執筆してください：\n"
+                f"タイトル: {chapter['title']}\n"
+                f"内容のヒント: {chapter['description']}\n\n"
+                f"【提供された関連データ】\n{relevant_data}\n\n"
+                f"注意点：\n"
+                f"- 前後の章と重複しないよう、この章の守備範囲に集中すること\n"
+                f"- 提供データにある事実（数値・固有名詞）のみを使用すること\n"
+                f"- 出典は必ず [Source: URL] 形式で記載すること\n"
+            )
+
+            @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
+            def _kickoff_writer_chapter():
+                return self.crew_instance.writing_crew().kickoff(
+                    inputs={
+                        "topic": self.state.topic,
+                        "write_instruction": write_instruction,
+                        "quality_requirements": quality_reqs,
+                        "fetched_urls_list": fetched_urls_str,
+                    }
+                )
+
+            try:
+                result = _kickoff_writer_chapter()
+                self.log(f"  🏁 章 {idx + 1} 執筆完了")
+                return idx, (result.raw if hasattr(result, "raw") else str(result))
+            except Exception as e:
+                self.log(f"   ❌ 章 {idx + 1} の執筆エラー (リトライ上限到達): {e}", level="error")
+                return idx, f"## {chapter['title']}\n\n(執筆エラー: {e})"
+
         is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
         quality_reqs = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
         fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
 
         if not chapters:
             # フォールバック: 一括生成
-            print("   ⚠️ 章パース失敗 → 全体一括生成モード")
+            self.log("   ⚠️ 章パース失敗 → 全体一括生成モード", level="warning")
             write_instruction = (
                 f"構成案：\n{outline}\n\n"
                 f"収集データ：\n{research_data}\n\n"
@@ -478,7 +573,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                 result = _kickoff_writer_fallback()
                 raw_output = result.raw if hasattr(result, "raw") else str(result)
             except Exception as e:
-                print(f"   ❌ Writer 一括生成エラー: {e}")
+                self.log(f"   ❌ Writer 一括生成エラー: {e}", level="error")
                 raw_output = f"# エラー\nレポートの執筆中にエラーが発生しました: {e}"
             self.state.final_report = raw_output
             self.state.chapter_drafts = [raw_output]
@@ -488,11 +583,11 @@ class DeepResearchFlow(Flow[ResearchState]):
             return raw_output
 
         # 章ごとに執筆
-        print(f"   📑 {len(chapters)}章を段階的に並列執筆します")
+        self.log(f"   📑 {len(chapters)}章を段階的に並列執筆します")
         chapter_drafts = [""] * len(chapters) # 結果格納用リスト
 
         def _write_chapter(idx, chapter):
-            print(f"\n  📖 章 {idx + 1}/{len(chapters)}: {chapter['title'][:50]}... (執筆開始)")
+            self.log(f"\n  📖 章 {idx + 1}/{len(chapters)}: {chapter['title'][:50]}... (執筆開始)")
             write_instruction = (
                 f"レポート全体の構成：\n{outline}\n\n"
                 f"あなたは今、以下の章を執筆してください：\n"
@@ -516,24 +611,17 @@ class DeepResearchFlow(Flow[ResearchState]):
 
             try:
                 result = _kickoff_writer_chapter()
-                print(f"  🏁 章 {idx + 1} 執筆完了")
+                self.log(f"  🏁 章 {idx + 1} 執筆完了")
                 return idx, (result.raw if hasattr(result, "raw") else str(result))
             except Exception as e:
-                print(f"   ❌ 章 {idx + 1} の執筆エラー (リトライ上限到達): {e}")
+                self.log(f"   ❌ 章 {idx + 1} の執筆エラー (リトライ上限到達): {e}", level="error")
                 return idx, f"## {chapter['title']}\n\n(執筆エラー: {e})"
 
         # 複数章を並列で実行
-        # 【修正前】
-        # with concurrent.futures.ThreadPoolExecutor(max_workers=len(chapters)) as executor:
-        #     futures = [executor.submit(_write_chapter, i, chap) for i, chap in enumerate(chapters)]
-
-        # 【修正後】
-        # OpenRouter無料枠の並列制限による429エラーとリトライ待機を防ぐため、並列数を絞る
-        # クラウド環境では最大2並列、ローカル環境ではCPU負荷を考慮し最大ワーカー数を決定
         is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
         worker_limit = 2 if is_online else 1  # ローカルは1に固定
         
-        print(f"   ⚙️ {len(chapters)}章を最大 {worker_limit} 並列で段階的に執筆します (レートリミット回避)")
+        self.log(f"   ⚙️ {len(chapters)}章を最大 {worker_limit} 並列で段階的に執筆します (レートリミット回避)")
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_limit) as executor:
             futures = [executor.submit(_write_chapter, i, chap) for i, chap in enumerate(chapters)]
@@ -545,10 +633,10 @@ class DeepResearchFlow(Flow[ResearchState]):
 
         # 統合パス
         if len(chapter_drafts) <= 1:
-            print("\n   ℹ️ 単一章のため統合パスをスキップ")
+            self.log("\n   ℹ️ 単一章のため統合パスをスキップ")
             self.state.final_report = chapter_drafts[0] if chapter_drafts else ""
         else:
-            print(f"\n  🔗 統合パス: {len(chapter_drafts)}章を1つのレポートに統合...")
+            self.log(f"\n  🔗 統合パス: {len(chapter_drafts)}章を1つのレポートに統合...")
             combined = "\n\n".join(chapter_drafts)
             integration_instruction = (
                 "以下は各章のドラフトです。これらを統合して1つの完成されたレポートにしてください。\n\n"
@@ -636,7 +724,7 @@ class DeepResearchFlow(Flow[ResearchState]):
     @listen(run_writer)
     def validate_sources(self):
         """レポート内の引用URLを検証し、引用番号スタイルに変換 (utilsへ委譲)"""
-        print("\n🔎 [SourceValidator] ソース信頼性の検証と引用スタイル変換中...")
+        self.log("\n🔎 [SourceValidator] ソース信頼性の検証と引用スタイル変換中...")
         is_strict = os.environ.get("DEEP_RESEARCH_STRICT_SOURCES") == "1"
         self.state.final_report = format_report_references(
             self.state.final_report, 
@@ -650,32 +738,55 @@ class DeepResearchFlow(Flow[ResearchState]):
     # ==========================================
     @listen(validate_sources)
     def save_report(self):
-        """最終レポートをファイルに保存"""
+        """最終レポートをファイルに保存し、実行サマリーを追記"""
         output_dir = "research_reports"
         os.makedirs(output_dir, exist_ok=True)
-        filename = f"Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}_crewai.md"
+        filename = f"Report_{self.timestamp}_crewai.md"
         filepath = os.path.join(output_dir, filename)
+
+        # 実行サマリーの構築 (Markdown)
+        total_time = sum(self.state.execution_times.values())
+        summary = f"\n\n---\n## 実行サマリー (Execution Summary)\n"
+        summary += f"- **実行日時**: {self.current_time}\n"
+        
+        # 主要な引数の記録
+        if self.state.cli_args:
+            args = self.state.cli_args
+            summary += f"- **実行オプション**: "
+            options = []
+            for opt in ["light", "online", "advanced", "strict_sources"]:
+                if args.get(opt):
+                    options.append(f"`--{opt}`")
+            summary += (", ".join(options) if options else "デフォルト") + "\n"
+            summary += f"- **使用モデル**:\n"
+            summary += f"  - Scout: `{args.get('scout') or DEFAULT_SCOUT_MODEL}`\n"
+            summary += f"  - Commander: `{args.get('commander') or DEFAULT_COMMANDER_MODEL}`\n"
+            summary += f"  - Worker: `{args.get('worker') or DEFAULT_WORKER_MODEL}`\n"
+            summary += f"  - Writer: `{args.get('writer') or args.get('commander') or DEFAULT_WRITER_MODEL}`\n"
+
+        summary += f"- **所要時間総計**: {total_time:.1f}秒 ({total_time/60:.1f}分)\n"
+        summary += f"  - **フェッチ済みURL数**: {len(self.state.fetched_urls)}件\n"
+        summary += f"  - **リサーチループ回数**: {self.state.loop_count}回\n"
+        summary += f"  - **セクション別所要時間**:\n"
+        for task, duration in self.state.execution_times.items():
+            summary += f"    - {task}: {duration:.2f}秒\n"
+
+        # レポート本体に追記
+        self.state.final_report += summary
 
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(self.state.final_report)
 
-        report = self.state.final_report
-        print(f"\n\n{'=' * 60}")
-        print(f"💾 レポートを保存しました: {filepath}")
-        print(f"📊 レポート統計:")
-        print(f"   - 文字数: {len(report)}字")
-        print(f"   - 章数: {len(self.state.chapter_drafts)}章")
-        print(f"   - フェッチ済みURL数: {len(self.state.fetched_urls)}件")
-        print(f"   - リサーチループ回数: {self.state.loop_count}回")
-
-        if self.state.execution_times:
-            print(f"\n⏱️ 処理時間サマリー:")
-            total_time = 0
-            for task_name, t in self.state.execution_times.items():
-                print(f"   - {task_name}: {t:.1f}秒")
-                total_time += t
-            print(f"   - 合計: {total_time:.1f}秒 ({total_time/60:.1f}分)")
-
+        self.log(f"\n✨ レポート完成: {filepath}")
+        self.log("=" * 60)
+        
+        # コンソール/ログ用の統計表示
+        self.log("\n📊 実行統計:")
+        self.log(f"   - 文字数: {len(self.state.final_report)}字")
+        for task, duration in self.state.execution_times.items():
+            self.log(f"   - {task}: {duration:.2f}秒")
+        self.log(f"   - 合計: {total_time:.1f}秒")
+        
         return filepath
 
 
@@ -779,6 +890,8 @@ def kickoff():
         worker_model=args.worker,
         writer_model=args.writer,
     )
+    # 引数をシリアライズ可能な形で状態に保存
+    flow.state.cli_args = vars(args)
 
     # トピックが指定されていればinputsに渡す
     inputs = {}
