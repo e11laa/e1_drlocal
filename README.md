@@ -111,7 +111,7 @@ OPENROUTER_API_KEY="your_openrouter_api_key"
 *This project is being developed with the assistance of Google Antigravity.*
 
 ## Project Overview
-**e1_drlocal** is a multi-agent, autonomous research system built on CrewAI Flows.
+**e1_drlocal** is a multi-agent, autonomous research system built on CrewAI Flows, **highly optimized for research using Japanese prompts.**
 Given a topic, multiple AI agents collaborate to automatically execute: "formulating a research plan," "parallel information gathering," "data quality evaluation and proposing additional methods," "drafting report outlines," and "writing and refining the final Markdown report."
 
 Previously built on LangGraph (StateGraph), it has now been refactored to an architecture using CrewAI flow control (`@start`, `@listen`, `@router`).

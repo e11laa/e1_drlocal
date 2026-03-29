@@ -145,6 +145,7 @@ create_outline:
   agent: outliner
 
 write_report:
+  description: >
     以下の品質基準を厳密に満たすレポートを執筆せよ：
     - 序論で調査の背景・目的・分析の射程を明確に示す
     - 各章は「事実の提示 → 分析・解釈 → 含意（So What?）」の三層構造で記述する
