@@ -521,7 +521,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                 f"注意点：\n"
                 f"- 前後の章と重複しないよう、この章の守備範囲に集中すること\n"
                 f"- 提供データにある事実（数値・固有名詞）のみを使用すること\n"
-                f"- 出典は必ず [Source: URL] 形式で記載すること\n"
+                f"- **【引用形式の厳守】** 実際のURLを用いて [1] または [Source: https://...] 形式で明記せよ。提供されたデータに含まれる収集済みのURLをそのまま使用すること。"
             )
 
             @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
@@ -878,7 +878,7 @@ def kickoff():
         args.scout = "ollama/gemma3n:e2b"
         args.commander = "ollama/qwen2.5:3b"
         args.worker = "ollama/qwen2.5:3b"
-        args.writer = "ollama/gemma3n:e2b"
+        args.writer = "ollama/qwen2.5:3b"
 
     if args.strict_sources:
         print("🛡️ 【Strict Sources】検証済み以外の架空URL引用を強制削除します。")
