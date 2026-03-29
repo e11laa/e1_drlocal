@@ -237,3 +237,7 @@ ollama pull nemotron-3-nano:4b
 ---
 
 **これでセットアップは完了です！** [使い方 (Usage)](#使い方-usage) セクションに戻って、リサーチを開始しましょう。
+
+## ライセンス (License)
+
+本プロジェクトは Apache License 2.0 の下で公開されています。詳細については [LICENSE](LICENSE) ファイルをご参照ください。
