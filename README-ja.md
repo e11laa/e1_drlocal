@@ -16,7 +16,7 @@
   - **Scout / Planner**: リサーチプランと検索クエリを立案。
   - **Worker / Researcher**: 並列にWebから情報を収集。
   - **Commander / Reviewer**: 収集されたデータの品質を評価し、不十分なら追加の調査軸や推奨クエリを提示して Planner に差し戻す。
-  - **Writer & Editor**: アウトラインに基づき各章を並列で執筆、統合。高度なモードでは編集長(Editor)による推敲とリライト処理も実行する。
+  - **Writer & Editor**: 各章を並列で執筆、統合。高度なモードでは編集長(Editor)による推敲とリライト処理も実行する。
 
 - **ハイブリッド・モデル対応 (Hybrid Model Support)**:
   - `--light` フラグによるローカルの軽量モデル(Ollama 経由の Gemma3 / Qwen2.5 等)での実行。
