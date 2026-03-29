@@ -27,7 +27,7 @@ Previously built on LangGraph (StateGraph), it has now been refactored to an arc
 
 ## Usage
 
-*Note: For detailed step-by-step instructions on environment setup, please refer to the [Setup & Configuration](#setup--configuration) section at the bottom of this page.*
+*For a detailed setup guide, please refer to the [section at the bottom of the page](#setup--configuration).*
 
 Set up and run the project using a package manager like `uv`.
 
