@@ -108,14 +108,14 @@ OPENROUTER_API_KEY="your_openrouter_api_key"
 ### 5. Local LLM Setup
 To run models locally, install [Ollama](https://ollama.ai/) and pull the necessary models:
 
-# Default Profile
+#### Default Profile
 ```bash
 ollama pull llama4-scout-q2:latest
 ollama pull gpt-oss:20b
 ollama pull nemotron-3-nano:4b
 ```
 
-# Lightweight Profile (Recommended)
+#### Lightweight Profile (Recommended)
 ```bash
 ollama pull gemma3n:e2b
 ollama pull qwen2.5:3b

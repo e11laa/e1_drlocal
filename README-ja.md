@@ -110,14 +110,14 @@ OPENROUTER_API_KEY="your_openrouter_api_key"
 ローカルで実行する場合、[Ollama](https://ollama.ai/) をインストールしてください。
 以下のコマンドを実行し、モデルを事前に入手しておいてください：
 
-# デフォルト起動
+#### デフォルト起動
 ```bash
 ollama pull llama4-scout-q2:latest
 ollama pull gpt-oss:20b
 ollama pull nemotron-3-nano:4b
 ```
 
-# 軽量プロファイル
+#### 軽量プロファイル
 ```bash
 ollama pull gemma3n:e2b
 ollama pull qwen2.5:3b
