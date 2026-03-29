@@ -135,45 +135,52 @@ def parse_suggested_queries(critic_text: str) -> list[str]:
     return suggested[:8]
 
 
-def format_report_references(report: str, fetched_urls: list[str], strict_sources: bool = False) -> str:
+def format_report_references(report: str, fetched_urls: list[str], strict_sources: bool = False, is_light: bool = False) -> str:
     """レポート内の引用を整理し、番号付き引用 [1] に統一して末尾にリストを追加する。"""
+    
+    # 0. 【ライトモード限定】サニタイジング（変数の漏洩防止）
+    if is_light:
+        # {fetched_urls_list} や {quality_requirements} などのテンプレート変数を強制削除
+        report = re.sub(r'\{[a-zA-Z0-9_]+\}', '', report)
+        # AIが勝手に作った壊れたMarkdownアンカー [#0] などを [1] 形式に修復
+        report = re.sub(r'\[(\d+)\]\(#\d+\)', r'[\1]', report)
+
     valid_urls_list = fetched_urls if fetched_urls else []
     valid_urls_set = set(valid_urls_list)
 
-    # 1. 本文から既存の [Source: URL] 形式を抽出
-    cited_urls = re.findall(r"\[Source:\s*(https?://[^\]\s]+)\]", report)
+    # 1. 本文から引用タグを抽出
+    # 標準: [Source: URL], ライトモード特有: [[REF: URL]]
+    cited_standard = re.findall(r"\[Source:\s*(https?://[^\s\]]+)\]", report)
+    cited_ref_tag = re.findall(r"\[\[REF:\s*(https?://[^\s\]]+)\]\]", report)
     
-    # 2. LLMが直接書いた可能性のある末尾のURLリストや、本文中の裸のURLも可能な限り拾う
-    # (ただし、参考文献一覧セクションなどのURLを優先的に拾う)
+    # 2. LLMが直接書いた可能性のあるURLも拾う
     plain_urls = re.findall(r"(https?://[^\s)\]\"'>]+)", report)
     
-    # 重複を排除しつつ、出現順(本文中の引用優先)を保持
+    # 重複を排除しつつ、出現順（本文中の引用優先）を保持
     unique_cited = []
-    for url in (cited_urls + plain_urls):
-        url = url.strip(".,")
-        if url not in unique_cited:
-            # 信頼性を高めるため、基本的には fetched_urls にあるものを優先
+    for url in (cited_standard + cited_ref_tag + plain_urls):
+        url = url.strip("., ")
+        if url and url not in unique_cited:
             unique_cited.append(url)
 
-    # 3. strict_sources が True の場合、未調査URLへの参照を削除または警告付きにする
+    # 3. strict_sources が True の場合、未調査URLへの参照を削除
     if strict_sources:
         unique_cited = [u for u in unique_cited if u in valid_urls_set]
-        # 本文中の無効な [Source: URL] を消去
-        all_found = re.findall(r"\[Source:\s*(https?://[^\]\s]+)\]", report)
-        for u in all_found:
-            if u not in valid_urls_set:
-                report = report.replace(f"[Source: {u}]", "")
+        # 本文中の無効なタグを消去
+        report = re.sub(r"\[Source:\s*(https?://[^\s\]]+)\]", 
+                        lambda m: m.group(0) if m.group(1) in valid_urls_set else "", report)
+        report = re.sub(r"\[\[REF:\s*(https?://[^\s\]]+)\]\]", 
+                        lambda m: m.group(0) if m.group(1) in valid_urls_set else "", report)
 
     # 4. マッピング作成
     url_mapping = {url: i for i, url in enumerate(unique_cited, 1)}
 
-    # 5. 本文の置換: [Source: URL] -> [index]
+    # 5. 本文の置換: タグ -> [index]
     for url, idx in url_mapping.items():
-        # [Source: URL] 形式を置換
+        # 標準タグ置換
         report = re.sub(r"\[Source:\s*" + re.escape(url) + r"\s*\]", f"[{idx}]", report)
-        # もしLLMがすでに [1] [2] と書いていて、かつURLが裸で書かれている場合、
-        # 裸のURLを消去しつつ、番号が整合するようにしたいが、誤爆リスクがあるため
-        # ここでは最低限 [Source: URL] の置換にとどめる。
+        # ライトモード用タグ置換
+        report = re.sub(r"\[\[REF:\s*" + re.escape(url) + r"\s*\]\]", f"[{idx}]", report)
     
     # 6. 既存の「参考文献」セクションがあれば、一旦削除して再構築する
     report = re.split(r"\n\n---\n## 参考文献一覧", report)[0]

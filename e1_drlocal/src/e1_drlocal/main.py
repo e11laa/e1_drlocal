@@ -486,14 +486,18 @@ class DeepResearchFlow(Flow[ResearchState]):
         research_data = self.state.research_data[:limit]
         chapters = parse_chapters(outline)
         
-        # 章ごとに執筆
-        self.log(f"   📑 {len(chapters)}章を段階的に並列執筆します")
-        chapter_drafts = [""] * len(chapters) # 結果格納用リスト
+        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
+        quality_reqs_raw = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
+        fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
+        
+        # 明示的に変数を展開する(CrewAIのテンプレート処理漏れ対策)
+        quality_reqs = quality_reqs_raw.format(fetched_urls_list=fetched_urls_str)
 
         def _filter_relevant_data(chapter_title, full_data):
             """章のタイトルに関連する研究データのみを抽出する(軽量モデルの混乱防止)"""
-            if not full_data:
-                return ""
+            if not is_light or not full_data:
+                return full_data
+            
             sections = full_data.split("### 解析報告:")
             relevant_sections = []
             
@@ -512,16 +516,19 @@ class DeepResearchFlow(Flow[ResearchState]):
         def _write_chapter(idx, chapter):
             relevant_data = _filter_relevant_data(chapter['title'], research_data)
             self.log(f"\n  📖 章 {idx + 1}/{len(chapters)}: {chapter['title'][:50]}... (執筆開始)")
+            
+            cite_instruction = "[[REF: https://...]]" if is_light else "[Source: https://...]"
+            
             write_instruction = (
                 f"レポート全体の構成：\n{outline}\n\n"
                 f"あなたは今、以下の章を執筆してください：\n"
                 f"タイトル: {chapter['title']}\n"
-                f"内容のヒント: {chapter['description']}\n\n"
+                f"内容のヒント: {chapter['description'] if 'description' in chapter else chapter['raw']}\n\n"
                 f"【提供された関連データ】\n{relevant_data}\n\n"
                 f"注意点：\n"
                 f"- 前後の章と重複しないよう、この章の守備範囲に集中すること\n"
                 f"- 提供データにある事実(数値・固有名詞)のみを使用すること\n"
-                f"- **【引用形式の厳守】** 実際のURLを用いて [1] または [Source: https://...] 形式で明記せよ。提供されたデータに含まれる収集済みのURLをそのまま使用すること。"
+                f"- **【引用形式の厳守】** 実際のURLを用いて {cite_instruction} 形式で明記せよ。提供されたデータに含まれる収集済みのURLをそのまま使用すること。"
             )
 
             @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
@@ -543,16 +550,10 @@ class DeepResearchFlow(Flow[ResearchState]):
                 self.log(f"   ❌ 章 {idx + 1} の執筆エラー (リトライ上限到達): {e}", level="error")
                 return idx, f"## {chapter['title']}\n\n(執筆エラー: {e})"
 
-        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
-        quality_reqs_raw = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
-        fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
-        
-        # 明示的に変数を展開する(CrewAIのテンプレート処理漏れ対策)
-        quality_reqs = quality_reqs_raw.format(fetched_urls_list=fetched_urls_str)
-
         if not chapters:
             # フォールバック: 一括生成
             self.log("   ⚠️ 章パース失敗 → 全体一括生成モード", level="warning")
+            cite_instruction = "[[REF: https://...]]" if is_light else "[Source: https://...]"
             write_instruction = (
                 f"構成案：\n{outline}\n\n"
                 f"収集データ：\n{research_data}\n\n"
@@ -562,7 +563,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                 "3. ## 本論の各章(4〜6章、各章 ## 見出し付き)\n"
                 "4. ## 結論(全体統合の洞察)\n"
                 "5. ## 参考文献\n\n"
-                "最低5000文字以上のレポートを執筆すること。"
+                f"注意：引用形式は {cite_instruction} を厳守せよ。"
             )
             @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
             def _kickoff_writer_fallback():
@@ -591,37 +592,6 @@ class DeepResearchFlow(Flow[ResearchState]):
         # 章ごとに執筆
         self.log(f"   📑 {len(chapters)}章を段階的に並列執筆します")
         chapter_drafts = [""] * len(chapters) # 結果格納用リスト
-
-        def _write_chapter(idx, chapter):
-            self.log(f"\n  📖 章 {idx + 1}/{len(chapters)}: {chapter['title'][:50]}... (執筆開始)")
-            write_instruction = (
-                f"レポート全体の構成：\n{outline}\n\n"
-                f"あなたは今、以下の章を執筆してください：\n"
-                f"--- 現在の章 ---\n{chapter['raw']}\n---\n\n"
-                f"以下の収集データを活用してください：\n{research_data}\n\n"
-                "この章のみを執筆せよ。他の章については書かないこと。\n"
-                "Markdown形式で、## 見出し から始めること。\n"
-                "最低500文字以上で執筆すること。"
-            )
-
-            @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_writer_chapter():
-                return self.crew_instance.writing_crew().kickoff(
-                    inputs={
-                        "topic": self.state.topic,
-                        "write_instruction": write_instruction,
-                        "quality_requirements": quality_reqs,
-                        "fetched_urls_list": fetched_urls_str,
-                    }
-                )
-
-            try:
-                result = _kickoff_writer_chapter()
-                self.log(f"  🏁 章 {idx + 1} 執筆完了")
-                return idx, (result.raw if hasattr(result, "raw") else str(result))
-            except Exception as e:
-                self.log(f"   ❌ 章 {idx + 1} の執筆エラー (リトライ上限到達): {e}", level="error")
-                return idx, f"## {chapter['title']}\n\n(執筆エラー: {e})"
 
         # 複数章を並列で実行
         is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
@@ -732,10 +702,12 @@ class DeepResearchFlow(Flow[ResearchState]):
         """レポート内の引用URLを検証し、引用番号スタイルに変換 (utilsへ委譲)"""
         self.log("\n🔎 [SourceValidator] ソース信頼性の検証と引用スタイル変換中...")
         is_strict = os.environ.get("DEEP_RESEARCH_STRICT_SOURCES") == "1"
+        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
         self.state.final_report = format_report_references(
             self.state.final_report, 
             self.state.fetched_urls,
-            strict_sources=is_strict
+            strict_sources=is_strict,
+            is_light=is_light
         )
         return self.state.final_report
 
