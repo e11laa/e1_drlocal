@@ -876,9 +876,9 @@ def kickoff():
     elif args.light:
         print("⚡ 軽量プロファイル(--light)が指定されました。")
         args.scout = "ollama/gemma3n:e2b"
-        args.commander = "ollama/gemma3n:e2b"
+        args.commander = "ollama/qwen2.5:3b"
         args.worker = "ollama/qwen2.5:3b"
-        args.writer = "ollama/qwen2.5:3b"
+        args.writer = "ollama/gemma3n:e2b"
 
     if args.strict_sources:
         print("🛡️ 【Strict Sources】検証済み以外の架空URL引用を強制削除します。")
