@@ -52,11 +52,19 @@ OPENROUTER_API_KEY="your_openrouter_api_key"
 ```
 
 ### 4. Local LLM Setup
-If running locally with the `--light` flag, install [Ollama](https://ollama.ai/) and pull the following models.
+Install [Ollama](https://ollama.ai/) to run local models. **We strongly recommend running the system with the `--light` flag** in most environments. For this lightweight profile, please pull the following models:
 
 ```bash
 ollama pull gemma3n:e2b
 ollama pull qwen2.5:3b
+```
+
+*Note: If you have a high-performance environment (such as a gaming PC with a dedicated GPU), you can run the system without any flags to use the heavier default models:*
+
+```bash
+ollama pull llama4-scout-q2:latest
+ollama pull gpt-oss:20b
+ollama pull nemotron-3-nano:4b
 ```
 
 ## Directory Structure

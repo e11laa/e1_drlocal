@@ -52,11 +52,19 @@ OPENROUTER_API_KEY="your_openrouter_api_key"
 ```
 
 ### 4. ローカルLLMの準備 (Local LLM Setup)
-`--light` フラグでローカル実行を行う場合は、[Ollama](https://ollama.ai/) をインストールし、以下のモデルをプルしておいてください。
+ローカルで実行する場合は、[Ollama](https://ollama.ai/) をインストールしてください。**基本的には `--light` フラグを使用した軽量プロファイルでの実行を推奨しています**。以下のモデルを事前にプルしておいてください：
 
 ```bash
 ollama pull gemma3n:e2b
 ollama pull qwen2.5:3b
+```
+
+*※ ゲーミングPCなどの高性能なGPU環境がある場合のみ、フラグなしのデフォルト起動をお試しください。その場合は以下の重いモデルが必要になります:*
+
+```bash
+ollama pull llama4-scout-q2:latest
+ollama pull gpt-oss:20b
+ollama pull nemotron-3-nano:4b
 ```
 
 ## ディレクトリ構成 (Directory Structure)
