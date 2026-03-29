@@ -876,7 +876,7 @@ def kickoff():
     elif args.light:
         print("⚡ 軽量プロファイル(--light)が指定されました。")
         args.scout = "ollama/gemma3n:e2b"
-        args.commander = "ollama/qwen2.5:3b"
+        args.commander = "ollama/gemma3n:e2b"
         args.worker = "ollama/qwen2.5:3b"
         args.writer = "ollama/qwen2.5:3b"
 
