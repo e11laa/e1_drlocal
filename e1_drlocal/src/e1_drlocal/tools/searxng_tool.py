@@ -17,6 +17,7 @@ from ..constants import (
     RE_RANK_TOP_K,
     RERANKER_MODEL_ONLINE,
     RERANKER_MODEL_LOCAL,
+    RERANKER_MODEL_LIGHT,
 )
 
 
@@ -43,7 +44,14 @@ class SearxNGSearchTool(BaseTool):
         logger.info(f"   ⚖️ [Reranker] {len(results)}件の結果から最適なソースを選別中...")
         
         is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
-        model = RERANKER_MODEL_ONLINE if is_online else RERANKER_MODEL_LOCAL
+        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
+
+        if is_online:
+            model = RERANKER_MODEL_ONLINE
+        elif is_light:
+            model = RERANKER_MODEL_LIGHT
+        else:
+            model = RERANKER_MODEL_LOCAL
         
         # セレクション用のコンテキスト作成
         candidates_text = ""

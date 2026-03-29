@@ -31,7 +31,8 @@ DEFAULT_SCOUT_MODEL = "ollama/llama4-scout-q2:latest"
 DEFAULT_COMMANDER_MODEL = "ollama/gpt-oss:20b"
 DEFAULT_WORKER_MODEL = "ollama/nemotron-3-nano:4b"
 DEFAULT_WRITER_MODEL = "ollama/gpt-oss:20b"
-RERANKER_MODEL_LOCAL = "ollama/qwen2.5:3b"
+RERANKER_MODEL_LOCAL = "ollama/nemotron-3-nano:4b"
+RERANKER_MODEL_LIGHT = "ollama/qwen3.5:2b"
 
 # ==========================================
 # オンライン（クラウド）モデル設定
