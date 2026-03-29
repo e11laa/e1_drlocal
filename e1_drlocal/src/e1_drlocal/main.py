@@ -37,6 +37,7 @@ from .constants import (
     RESEARCH_DIMENSIONS,
     QUERY_FORMAT_INSTRUCTION,
     REPORT_QUALITY_REQUIREMENTS,
+    LIGHT_REPORT_QUALITY_REQUIREMENTS,
 )
 from .utils import (
     extract_urls,
@@ -443,6 +444,10 @@ class DeepResearchFlow(Flow[ResearchState]):
         outline = self.state.outline
         research_data = self.state.research_data[:limit]
         chapters = parse_chapters(outline)
+        
+        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
+        quality_reqs = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
+        fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
 
         if not chapters:
             # フォールバック: 一括生成
@@ -464,6 +469,8 @@ class DeepResearchFlow(Flow[ResearchState]):
                     inputs={
                         "topic": self.state.topic,
                         "write_instruction": write_instruction,
+                        "quality_requirements": quality_reqs,
+                        "fetched_urls_list": fetched_urls_str,
                     }
                 )
 
@@ -502,6 +509,8 @@ class DeepResearchFlow(Flow[ResearchState]):
                     inputs={
                         "topic": self.state.topic,
                         "write_instruction": write_instruction,
+                        "quality_requirements": quality_reqs,
+                        "fetched_urls_list": fetched_urls_str,
                     }
                 )
 
@@ -560,6 +569,8 @@ class DeepResearchFlow(Flow[ResearchState]):
                     inputs={
                         "topic": self.state.topic,
                         "write_instruction": integration_instruction,
+                        "quality_requirements": quality_reqs,
+                        "fetched_urls_list": fetched_urls_str,
                     }
                 )
 
@@ -626,9 +637,11 @@ class DeepResearchFlow(Flow[ResearchState]):
     def validate_sources(self):
         """レポート内の引用URLを検証し、引用番号スタイルに変換 (utilsへ委譲)"""
         print("\n🔎 [SourceValidator] ソース信頼性の検証と引用スタイル変換中...")
+        is_strict = os.environ.get("DEEP_RESEARCH_STRICT_SOURCES") == "1"
         self.state.final_report = format_report_references(
             self.state.final_report, 
-            self.state.fetched_urls
+            self.state.fetched_urls,
+            strict_sources=is_strict
         )
         return self.state.final_report
 
@@ -702,11 +715,28 @@ def kickoff():
         help="高度な機能（構造化出力・情報圧縮・推敲ループ）を強制有効にする（--online時は自動有効）",
     )
     parser.add_argument(
+        "--strict-sources", action="store_true",
+        help="ハルシネーション対策: 検索成功したURL以外からの引用を物理削除する",
+    )
+    parser.add_argument(
         "--topic", type=str, default="",
         help="リサーチトピック（省略時は対話式入力）",
     )
 
     args = parser.parse_args()
+
+    # フラグの環境変数へのバインド
+    if args.light:
+        os.environ["DEEP_RESEARCH_LIGHT"] = "1"
+        # 軽量モデルは自動で strict モードを有効にする（CLIで明示的にオフにする機能はない前提）
+        args.strict_sources = True
+
+    if args.strict_sources:
+        os.environ["DEEP_RESEARCH_STRICT_SOURCES"] = "1"
+
+    if args.advanced or args.online:
+        os.environ["DEEP_RESEARCH_ADVANCED"] = "1"
+        print("🪄 アドバンスドモード作動: (構造化出力 / 情報圧縮 / 推敲ループが有効になります)")
 
     if args.online:
         # オンラインフラグを環境変数にセット（WebFetchToolなどから参照できるようにするため）
@@ -730,9 +760,8 @@ def kickoff():
         args.worker = "ollama/qwen2.5:3b"
         args.writer = "ollama/qwen2.5:3b"
 
-    if args.advanced or args.online:
-        os.environ["DEEP_RESEARCH_ADVANCED"] = "1"
-        print("🪄 アドバンスドモード作動: (構造化出力 / 情報圧縮 / 推敲ループが有効になります)")
+    if args.strict_sources:
+        print("🛡️ 【Strict Sources】検証済み以外の架空URL引用を強制削除します。")
 
     print("-" * 60)
     print(f"🤖 [Scout]     : {args.scout}")

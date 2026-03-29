@@ -135,7 +135,7 @@ def parse_suggested_queries(critic_text: str) -> list[str]:
     return suggested[:8]
 
 
-def format_report_references(report: str, fetched_urls: list[str]) -> str:
+def format_report_references(report: str, fetched_urls: list[str], strict_sources: bool = False) -> str:
     """レポート内の [Source: URL] を番号付き引用 [1] に置換し、末尾にリストを追加する"""
     valid_urls = set(fetched_urls)
 
@@ -147,6 +147,14 @@ def format_report_references(report: str, fetched_urls: list[str]) -> str:
     for url in cited_urls_all:
         if url not in unique_cited:
             unique_cited.append(url)
+
+    # strict_sources が True の場合、fetched_urls に存在しないURLへの参照を全て物理削除する
+    if strict_sources:
+        invalid_urls = [u for u in unique_cited if u not in valid_urls]
+        for invalid_url in invalid_urls:
+            report = report.replace(f"[Source: {invalid_url}]", "")
+            report = re.sub(r"\[Source:\s*" + re.escape(invalid_url) + r"\s*\]", "", report)
+            unique_cited.remove(invalid_url)
 
     url_mapping = {}
     for i, url in enumerate(unique_cited, 1):
@@ -162,7 +170,7 @@ def format_report_references(report: str, fetched_urls: list[str]) -> str:
         references = "\n\n---\n## 参考文献一覧\n\n"
         for url in unique_cited:
             idx = url_mapping[url]
-            valid_mark = "" if url in valid_urls else " （※未検証ソース・LLMのハルシネーションの可能性）"
+            valid_mark = "" if url in valid_urls else " （※今回の調査範囲外リンク・LLM拡張知識）"
             references += f"{idx}. {url}{valid_mark}\n"
         
         if "### フェッチ検証済みソース一覧" in report:
