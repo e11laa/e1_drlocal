@@ -91,7 +91,7 @@ class WebFetchTool(BaseTool):
                 # BeautifulSoup が無い場合は正規表現でフォールバック
                 import re
                 text = resp.text
-                # scriptとstyleタグの中身（JavaScriptやCSSのコード）を先に消去
+                # scriptとstyleタグの中身(JavaScriptやCSSのコード)を先に消去
                 text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL)
                 # 残りのHTMLタグを消去
                 text = re.sub(r"<[^>]+>", "", text)

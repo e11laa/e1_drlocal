@@ -24,10 +24,10 @@ def chunk_text(
 
 
 def extract_urls(raw_result) -> list[str]:
-    """SearxNG の検索結果から URL を堅牢に抽出する（複数形式に対応）"""
+    """SearxNG の検索結果から URL を堅牢に抽出する(複数形式に対応)"""
     urls: list[str] = []
 
-    # パターン1: dict のリスト（SearxNG JSON 形式）
+    # パターン1: dict のリスト(SearxNG JSON 形式)
     if isinstance(raw_result, list):
         for item in raw_result:
             if isinstance(item, dict):
@@ -47,7 +47,7 @@ def extract_urls(raw_result) -> list[str]:
                             urls.append(str(item[key]))
                             break
 
-    # パターン3: 文字列から URL 抽出（汎用フォールバック）
+    # パターン3: 文字列から URL 抽出(汎用フォールバック)
     text = str(raw_result)
     found = re.findall(r'https?://[^\s\'"<>}\]\),]+', text)
     for u in found:
@@ -55,7 +55,7 @@ def extract_urls(raw_result) -> list[str]:
         if u not in urls and len(u) > 15:
             urls.append(u)
 
-    # 重複除去（順序保持）
+    # 重複除去(順序保持)
     seen: set[str] = set()
     unique: list[str] = []
     for u in urls:
@@ -78,7 +78,7 @@ def parse_chapters(outline: str) -> list[dict]:
             if title:
                 chapters.append({"title": title, "raw": f"CHAPTER: {part}"})
 
-    # パターン2: Markdown ## 見出し形式（フォールバック）
+    # パターン2: Markdown ## 見出し形式(フォールバック)
     if len(chapters) < 2:
         chapters = []
         lines = outline.split("\n")
@@ -147,7 +147,7 @@ def format_report_references(report: str, fetched_urls: list[str], strict_source
     # (ただし、参考文献一覧セクションなどのURLを優先的に拾う)
     plain_urls = re.findall(r"(https?://[^\s)\]\"'>]+)", report)
     
-    # 重複を排除しつつ、出現順（本文中の引用優先）を保持
+    # 重複を排除しつつ、出現順(本文中の引用優先)を保持
     unique_cited = []
     for url in (cited_urls + plain_urls):
         url = url.strip(".,")
@@ -184,7 +184,7 @@ def format_report_references(report: str, fetched_urls: list[str], strict_source
     if unique_cited:
         references = "\n\n---\n## 参考文献一覧\n\n"
         for url, idx in url_mapping.items():
-            valid_mark = "" if url in valid_urls_set else " （※LLMによる外部知識引用）"
+            valid_mark = "" if url in valid_urls_set else " (※LLMによる外部知識引用)"
             references += f"{idx}. {url}{valid_mark}\n"
         report += references
 

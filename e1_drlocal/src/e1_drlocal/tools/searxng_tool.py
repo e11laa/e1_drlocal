@@ -24,7 +24,7 @@ from ..constants import (
 
 class SearxNGSearchInput(BaseModel):
     """SearxNG 検索ツールの入力スキーマ"""
-    query: str = Field(..., description="検索キーワード（スペース区切り）")
+    query: str = Field(..., description="検索キーワード(スペース区切り)")
 
 
 class SearxNGSearchTool(BaseTool):

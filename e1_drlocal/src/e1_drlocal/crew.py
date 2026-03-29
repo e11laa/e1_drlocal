@@ -18,8 +18,8 @@ from .constants import (
 
 # === 追加: Planner抽出用のデータスキーマ ===
 class PlannerOutput(BaseModel):
-    research_plan: str = Field(..., description="現状の分析と今後のリサーチ方針（思考プロセス）")
-    queries: List[str] = Field(..., description="次に実行すべき具体的な検索クエリのリスト（最大6つ）")
+    research_plan: str = Field(..., description="現状の分析と今後のリサーチ方針(思考プロセス)")
+    queries: List[str] = Field(..., description="次に実行すべき具体的な検索クエリのリスト(最大6つ)")
 # ==============================================
 
 # ==============================================
@@ -137,7 +137,7 @@ class DeepResearchCrew:
         )
 
     # ==========================================
-    # タスク定義（エージェントを引数で渡す）
+    # タスク定義(エージェントを引数で渡す)
     # ==========================================
 
     def plan_research_task(self, agent: Agent) -> Task:
@@ -203,7 +203,7 @@ class DeepResearchCrew:
         )
 
     # ==========================================
-    # Crew 構築メソッド群（Flow から呼び出される）
+    # Crew 構築メソッド群(Flow から呼び出される)
     # ==========================================
 
     def planning_crew(self) -> Crew:

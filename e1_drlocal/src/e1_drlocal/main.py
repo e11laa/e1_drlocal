@@ -87,7 +87,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         self.logger = logging.getLogger("e1_drlocal")
         self.logger.setLevel(logging.INFO)
 
-        # ハンドラ設定（重複防止のためクリア）
+        # ハンドラ設定(重複防止のためクリア)
         if self.logger.hasHandlers():
             self.logger.handlers.clear()
 
@@ -96,7 +96,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
         self.logger.addHandler(file_handler)
 
-        # コンソール出力用（標準出力への重複を避けるため、既存のprintと棲み分けを検討）
+        # コンソール出力用(標準出力への重複を避けるため、既存のprintと棲み分けを検討)
         # 今回はprintをそのまま生かしつつ、logger.info() でファイルにも記録する設計に。
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter("%(message)s"))
@@ -113,7 +113,7 @@ class DeepResearchFlow(Flow[ResearchState]):
             self.logger.error(message)
 
     # ==========================================
-    # 1. トピック受取（エントリポイント）
+    # 1. トピック受取(エントリポイント)
     # ==========================================
     @start()
     def receive_topic(self):
@@ -135,7 +135,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         return topic
 
     # ==========================================
-    # 2. Planner（クエリ生成）
+    # 2. Planner(クエリ生成)
     # ==========================================
     @listen("need_more_research")
     def rerun_planner(self):
@@ -233,7 +233,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         return self.state.queries
 
     # ==========================================
-    # 3. Researcher（情報収集）
+    # 3. Researcher(情報収集)
     # ==========================================
     @listen(run_planner)
     def run_researcher_initial(self):
@@ -311,7 +311,7 @@ class DeepResearchFlow(Flow[ResearchState]):
 
         new_data = "".join(all_results)
         
-        # アドバンスドモード指定があり、かつ初回ループではない（既存データがある）場合は圧縮実行
+        # アドバンスドモード指定があり、かつ初回ループではない(既存データがある)場合は圧縮実行
         if os.environ.get("DEEP_RESEARCH_ADVANCED") == "1" and self.state.research_data.strip():
             print("\n🧹 [Synthesizer] 既存データと新規データの重複排除・圧縮を実行します...")
             @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
@@ -340,7 +340,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         return self.state.research_data
 
     # ==========================================
-    # 4. Reviewer（品質評価）
+    # 4. Reviewer(品質評価)
     # ==========================================
     @listen(run_researcher_initial)
     def run_reviewer_initial(self):
@@ -414,7 +414,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         return self.state.is_sufficient
 
     # ==========================================
-    # 5. Router（品質により分岐）
+    # 5. Router(品質により分岐)
     # ==========================================
     @router(run_reviewer_initial)
     def check_quality_initial(self):
@@ -437,7 +437,7 @@ class DeepResearchFlow(Flow[ResearchState]):
             return "need_more_research"
 
     # ==========================================
-    # 6. Outliner（構成案作成）
+    # 6. Outliner(構成案作成)
     # ==========================================
     @listen("sufficient")
     def run_outliner(self):
@@ -473,7 +473,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         return raw_output
 
     # ==========================================
-    # 7. Writer（レポート執筆）
+    # 7. Writer(レポート執筆)
     # ==========================================
     @listen(run_outliner)
     def run_writer(self):
@@ -491,7 +491,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         chapter_drafts = [""] * len(chapters) # 結果格納用リスト
 
         def _filter_relevant_data(chapter_title, full_data):
-            """章のタイトルに関連する研究データのみを抽出する（軽量モデルの混乱防止）"""
+            """章のタイトルに関連する研究データのみを抽出する(軽量モデルの混乱防止)"""
             if not full_data:
                 return ""
             sections = full_data.split("### 解析報告:")
@@ -520,7 +520,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                 f"【提供された関連データ】\n{relevant_data}\n\n"
                 f"注意点：\n"
                 f"- 前後の章と重複しないよう、この章の守備範囲に集中すること\n"
-                f"- 提供データにある事実（数値・固有名詞）のみを使用すること\n"
+                f"- 提供データにある事実(数値・固有名詞)のみを使用すること\n"
                 f"- **【引用形式の厳守】** 実際のURLを用いて [1] または [Source: https://...] 形式で明記せよ。提供されたデータに含まれる収集済みのURLをそのまま使用すること。"
             )
 
@@ -547,7 +547,7 @@ class DeepResearchFlow(Flow[ResearchState]):
         quality_reqs_raw = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
         fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
         
-        # 明示的に変数を展開する（CrewAIのテンプレート処理漏れ対策）
+        # 明示的に変数を展開する(CrewAIのテンプレート処理漏れ対策)
         quality_reqs = quality_reqs_raw.format(fetched_urls_list=fetched_urls_str)
 
         if not chapters:
@@ -558,9 +558,9 @@ class DeepResearchFlow(Flow[ResearchState]):
                 f"収集データ：\n{research_data}\n\n"
                 "上記の構成案と収集データに基づき、以下の構造を持つ包括的な分析レポートを執筆せよ：\n"
                 "1. # タイトル\n"
-                "2. ## 序論（背景・目的・射程）\n"
-                "3. ## 本論の各章（4〜6章、各章 ## 見出し付き）\n"
-                "4. ## 結論（全体統合の洞察）\n"
+                "2. ## 序論(背景・目的・射程)\n"
+                "3. ## 本論の各章(4〜6章、各章 ## 見出し付き)\n"
+                "4. ## 結論(全体統合の洞察)\n"
                 "5. ## 参考文献\n\n"
                 "最低5000文字以上のレポートを執筆すること。"
             )
@@ -647,10 +647,10 @@ class DeepResearchFlow(Flow[ResearchState]):
             integration_instruction = (
                 "以下は各章のドラフトです。これらを統合して1つの完成されたレポートにしてください。\n\n"
                 "統合時の作業：\n"
-                "1. レポートタイトル（# 見出し）を冒頭に付ける\n"
-                "2. 序論が無ければ追加する（テーマの背景、本レポートの目的、分析の射程を提示）\n"
-                "3. 結論が無ければ追加する（全体の知見を統合した高次の洞察）\n"
-                "4. 章間の論理的な接続を確保する（遷移文で自然につなげる）\n"
+                "1. レポートタイトル(# 見出し)を冒頭に付ける\n"
+                "2. 序論が無ければ追加する(テーマの背景、本レポートの目的、分析の射程を提示)\n"
+                "3. 結論が無ければ追加する(全体の知見を統合した高次の洞察)\n"
+                "4. 章間の論理的な接続を確保する(遷移文で自然につなげる)\n"
                 "5. 引用文献リストを末尾にまとめる\n"
                 "6. 各章のドラフトの内容は保持し、削除しないこと\n\n"
                 f"--- 各章のドラフト ---\n{combined}\n---\n\n"
@@ -697,7 +697,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                     print("   ⚠️ Editor からの指摘 (FAIL): 修正リライトを実行します")
                     feedback = editor_text.split("FAIL", 1)[-1].strip()
                     revise_instruction = (
-                        f"以下のレポート草案には編集長からダメ出し（修正指示）が入りました。\n"
+                        f"以下のレポート草案には編集長からダメ出し(修正指示)が入りました。\n"
                         f"指摘に厳密に従い、該当部分を修正して完全なレポートを再出力せよ。\n\n"
                         f"【編集長からの指摘】\n{feedback}\n\n"
                         f"【現在のドラフト】\n{draft}"
@@ -820,7 +820,7 @@ def kickoff():
     )
     parser.add_argument(
         "--writer", type=str, default=DEFAULT_WRITER_MODEL,
-        help="執筆者 (Writer) のモデルを指定（省略時は司令塔と同じ）",
+        help="執筆者 (Writer) のモデルを指定(省略時は司令塔と同じ)",
     )
     parser.add_argument(
         "--light", action="store_true",
@@ -828,11 +828,11 @@ def kickoff():
     )
     parser.add_argument(
         "--online", action="store_true",
-        help="クラウド (OpenRouter) モデルで実行する（OPENROUTER_API_KEY が必要）",
+        help="クラウド (OpenRouter) モデルで実行する(OPENROUTER_API_KEY が必要)",
     )
     parser.add_argument(
         "--advanced", action="store_true",
-        help="高度な機能（構造化出力・情報圧縮・推敲ループ）を強制有効にする（--online時は自動有効）",
+        help="高度な機能(構造化出力・情報圧縮・推敲ループ)を強制有効にする(--online時は自動有効)",
     )
     parser.add_argument(
         "--strict-sources", action="store_true",
@@ -840,7 +840,7 @@ def kickoff():
     )
     parser.add_argument(
         "--topic", type=str, default="",
-        help="リサーチトピック（省略時は対話式入力）",
+        help="リサーチトピック(省略時は対話式入力)",
     )
 
     args = parser.parse_args()
@@ -848,7 +848,7 @@ def kickoff():
     # フラグの環境変数へのバインド
     if args.light:
         os.environ["DEEP_RESEARCH_LIGHT"] = "1"
-        # 軽量モデルは自動で strict モードを有効にする（CLIで明示的にオフにする機能はない前提）
+        # 軽量モデルは自動で strict モードを有効にする(CLIで明示的にオフにする機能はない前提)
         args.strict_sources = True
 
     if args.strict_sources:
@@ -859,7 +859,7 @@ def kickoff():
         print("🪄 アドバンスドモード作動: (構造化出力 / 情報圧縮 / 推敲ループが有効になります)")
 
     if args.online:
-        # オンラインフラグを環境変数にセット（WebFetchToolなどから参照できるようにするため）
+        # オンラインフラグを環境変数にセット(WebFetchToolなどから参照できるようにするため)
         os.environ["DEEP_RESEARCH_ONLINE"] = "1"
         
         # uv run が .env を自動で環境変数に展開している前提で、存在確認のみを行うかチェック
