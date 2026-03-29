@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-*本プロジェクトは Google Antigravity の支援を受けて開発されています。*
+*本プロジェクトは、 Google Antigravity を利用しつつ、AIと協働して開発されています。*
 
 ## プロジェクト概要 (Project Overview)
 **e1_drlocal** は、CrewAI Flows をベースに構築されたマルチエージェント型・自律調査システムです。
