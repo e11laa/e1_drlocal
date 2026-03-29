@@ -25,46 +25,22 @@ Previously built on LangGraph (StateGraph), it has now been refactored to an arc
 - **Advanced Mode**:
   - By enabling the `--advanced` flag (or running in online mode), Pydantic-based structured extraction, existing data synthesis/compression (Synthesizer), and a final report quality audit with automatic correction (Editor refinement loop) are activated, achieving overwhelming quality improvements.
 
-## Setup & Configuration
+## Usage
 
-### 1. Prerequisites
-- **Python**: 3.10 to < 3.14
-- **Package Manager**: [uv](https://github.com/astral-sh/uv) (recommended) or pip
+*Note: For detailed step-by-step instructions on environment setup, please refer to the [Setup & Configuration](#setup--configuration) section at the bottom of this page.*
 
-### 2. Installation
-Clone the repository and install dependencies.
+Set up and run the project using a package manager like `uv`.
 
 ```bash
-# Using uv
-cd e1_drlocal
-uv sync
-```
+# Basic start (interactive topic input)
+uv run kickoff
 
-### 3. Environment Variables
-Create a `.env` file in the project root or `e1_drlocal/` directory and set the necessary API keys.
+# Example with options
+# Research a specific topic using advanced features via the cloud (OpenRouter)
+uv run kickoff --online --topic "Latest trends in Large Language Models (2026)"
 
-```ini
-# Required for cloud models (--online)
-OPENROUTER_API_KEY="your_openrouter_api_key"
-
-# (Optional) If using Google GenAI, etc.
-# GOOGLE_API_KEY="your_google_api_key"
-```
-
-### 4. Local LLM Setup
-Install [Ollama](https://ollama.ai/) to run local models. **We strongly recommend running the system with the `--light` flag** in most environments. For this lightweight profile, please pull the following models:
-
-```bash
-ollama pull gemma3n:e2b
-ollama pull qwen2.5:3b
-```
-
-*Note: If you have a high-performance environment (such as a gaming PC with a dedicated GPU), you can run the system without any flags to use the heavier default models:*
-
-```bash
-ollama pull llama4-scout-q2:latest
-ollama pull gpt-oss:20b
-ollama pull nemotron-3-nano:4b
+# Run with local lightweight models
+uv run kickoff --light --topic "About local LLM architectures"
 ```
 
 ## Directory Structure
@@ -94,18 +70,55 @@ This project is continuously expanded by an AI and human pair. Key recent change
 4. **Git Management Optimization**: Added ignore settings for environment files like `.venv`.
 5. **Project Rename**: Unified the project and repository names to `e1_drlocal`.
 
-## Usage
+## Setup & Configuration
 
-Set up and run the project using a package manager like `uv`.
+### 1. Prerequisites (For Windows 10/11 Fresh Setup)
+- **Git**: [Download from git-scm.com](https://git-scm.com/downloads)
+- **Microsoft C++ Build Tools**: Many AI python packages require C++ compilation if pre-built wheels are missing. Install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the "Desktop development with C++" workload beforehand to prevent bundle extraction errors.
+- **Docker Desktop**: Required to run the local SearxNG search engine. [Download here](https://www.docker.com/products/docker-desktop/).
+- **Package Manager [uv]**: Open PowerShell and run:
+  ```powershell
+  Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 -UseBasicParsing | Invoke-Expression
+  ```
+
+### 2. SearxNG Setup (Local Search Engine)
+The research agents rely on a local SearxNG instance for parallel web searches. Start it using Docker on port 8081 before running the local agents:
+```bash
+docker run -d -p 8081:8080 -e "BASE_URL=http://localhost:8081/" -e "INSTANCE_NAME=e1_searxng" searxng/searxng
+```
+
+### 3. Installation
+Clone the repository and install the project dependencies.
 
 ```bash
-# Basic start (interactive topic input)
-uv run kickoff
+# Using uv
+cd e1_drlocal
+uv sync
+```
 
-# Example with options
-# Research a specific topic using advanced features via the cloud (OpenRouter)
-uv run kickoff --online --topic "Latest trends in Large Language Models (2026)"
+### 4. Environment Variables
+Create a `.env` file in the project root or `e1_drlocal/` directory and set the necessary API keys.
 
-# Run with local lightweight models
-uv run kickoff --light --topic "About local LLM architectures"
+```ini
+# Required for cloud models (--online)
+OPENROUTER_API_KEY="your_openrouter_api_key"
+
+# (Optional) If using Google GenAI, etc.
+# GOOGLE_API_KEY="your_google_api_key"
+```
+
+### 5. Local LLM Setup
+Install [Ollama](https://ollama.ai/) to run local models. **We strongly recommend running the system with the `--light` flag** in most environments. For this lightweight profile, please pull the following models:
+
+```bash
+ollama pull gemma3n:e2b
+ollama pull qwen2.5:3b
+```
+
+*Note: If you have a high-performance environment (such as a gaming PC with a dedicated GPU), you can run the system without any flags to use the heavier default models:*
+
+```bash
+ollama pull llama4-scout-q2:latest
+ollama pull gpt-oss:20b
+ollama pull nemotron-3-nano:4b
 ```
