@@ -20,6 +20,7 @@ desktop.ini
 
 # IDE・エディタ設定
 .vscode/
+*.code-workspace
 .idea/
 *.swp
 *.swo

@@ -1,99 +1,103 @@
 # e1_drlocal
 
-## プロジェクト概要 (Project Overview)
-**e1_drlocal** は、CrewAI Flows をベースに構築されたマルチエージェント型・自律調査システムです。
-与えられたトピックに対して、複数のAIエージェントが協調しながら「調査計画の策定」「並列情報収集」「データ品質評価および追加手法の提案」「レポート構成案作成」、そして「最終的なMarkdownレポートの執筆と推敲」を自動で実行します。
+[日本語](README-ja.md)
 
-以前は LangGraph（StateGraph）ベースで構築されていましたが、現在は CrewAI のフロー制御（`@start`, `@listen`, `@router`）を用いたアーキテクチャにリファクタリングされています。
+*This project is being developed with the assistance of Google Antigravity.*
 
-## 主な特徴 (Key Features)
+## Project Overview
+**e1_drlocal** is a multi-agent, autonomous research system built on CrewAI Flows.
+Given a topic, multiple AI agents collaborate to automatically execute: "formulating a research plan," "parallel information gathering," "data quality evaluation and proposing additional methods," "drafting report outlines," and "writing and refining the final Markdown report."
 
-- **マルチエージェント協調 (Multi-Agent Collaboration)**:
-  - **Scout / Planner**: リサーチプランと検索クエリを立案。
-  - **Worker / Researcher**: 複数クエリを同時に用いて並列にWebから情報を収集。
-  - **Commander / Reviewer**: 収集されたデータの品質を厳格に評価し、不足があれば追加の調査軸や推奨クエリを提示して Planner に差し戻し。
-  - **Writer & Editor**: アウトラインに基づき各章を並列で執筆、統合。さらに高度なモードでは編集長(Editor)による推敲とリライト処理を実行。
+Previously built on LangGraph (StateGraph), it has now been refactored to an architecture using CrewAI flow control (`@start`, `@listen`, `@router`).
 
-- **ハイブリッド・モデル対応 (Hybrid Model Support)**:
-  - `--light` フラグによるローカルの軽量モデル（Ollama 経由の Gemma3 / Qwen2.5 等）での実行。
-  - `--online` フラグによるクラウドモデル（OpenRouter経由）での実行に対応しており、API制限や文脈長に応じた自動調整が可能。
+## Key Features
 
-- **アドバンスド・モード (Advanced Mode)**:
-  - `--advanced` フラグ（またはオンラインモード）を有効にすることで、Pydanticベースの構造化出力、既存データの圧縮・統合（Synthesizer）、最終レポートの品質監査と自動修正（Editor 推敲ループ）が作動し、圧倒的な品質向上を実現します。
+- **Multi-Agent Collaboration**:
+  - **Scout / Planner**: Formulates research plans and search queries.
+  - **Worker / Researcher**: Gathers information from the Web in parallel using multiple queries simultaneously.
+  - **Commander / Reviewer**: Strictly evaluates the quality of gathered data, and if insufficient, suggests additional research dimensions and recommended queries back to the Planner.
+  - **Writer & Editor**: Drafts each chapter in parallel based on the outline, then integrates them. In advanced modes, the Editor executes a refinement and rewrite loop for significant quality improvements.
 
-## セットアップと環境設定 (Setup & Configuration)
+- **Hybrid Model Support**:
+  - Run with local lightweight models (e.g., Gemma3 / Qwen2.5 via Ollama) using the `--light` flag.
+  - Run with cloud models (via OpenRouter) using the `--online` flag, with automatic adjustments based on API limits and context length.
 
-### 1. 動作環境 (Prerequisites)
-- **Python**: 3.10 以上 3.14 未満
-- **パッケージマネージャー**: [uv](https://github.com/astral-sh/uv) (推奨) または pip
+- **Advanced Mode**:
+  - By enabling the `--advanced` flag (or running in online mode), Pydantic-based structured extraction, existing data synthesis/compression (Synthesizer), and a final report quality audit with automatic correction (Editor refinement loop) are activated, achieving overwhelming quality improvements.
 
-### 2. インストール (Installation)
-リポジトリをクローンし、依存関係をインストールします。
+## Setup & Configuration
+
+### 1. Prerequisites
+- **Python**: 3.10 to < 3.14
+- **Package Manager**: [uv](https://github.com/astral-sh/uv) (recommended) or pip
+
+### 2. Installation
+Clone the repository and install dependencies.
 
 ```bash
-# uv を使用する場合
+# Using uv
 cd e1_drlocal
 uv sync
 ```
 
-### 3. 環境変数の設定 (Environment Variables)
-プロジェクトのルートまたは `e1_drlocal/` ディレクトリに `.env` ファイルを作成し、必要なAPIキーを設定してください。
+### 3. Environment Variables
+Create a `.env` file in the project root or `e1_drlocal/` directory and set the necessary API keys.
 
 ```ini
-# クラウドモデル利用時 (--online) に必要
+# Required for cloud models (--online)
 OPENROUTER_API_KEY="your_openrouter_api_key"
 
-# (任意) Google GenAI などを利用する場合
+# (Optional) If using Google GenAI, etc.
 # GOOGLE_API_KEY="your_google_api_key"
 ```
 
-### 4. ローカルLLMの準備 (Local LLM Setup)
-`--light` フラグでローカル実行を行う場合は、[Ollama](https://ollama.ai/) をインストールし、以下のモデルをプルしておいてください。
+### 4. Local LLM Setup
+If running locally with the `--light` flag, install [Ollama](https://ollama.ai/) and pull the following models.
 
 ```bash
 ollama pull gemma3n:e2b
 ollama pull qwen2.5:3b
 ```
 
-## ディレクトリ構成 (Directory Structure)
+## Directory Structure
 
 ```text
 e1_drlocal/ (Repository Root)
 ├── e1_drlocal/ (Project Root)
 │   ├── src/e1_drlocal/
-│   │   ├── main.py        # CrewAI Flows によるメイン実行フロー
-│   │   ├── crew.py        # エージェント・タスクのインスタンス管理
-│   │   ├── state.py       # Pydanticベースの状態(State)スキーマ定義
-│   │   ├── config/        # 各エージェント・タスクの YAML 定義ファイル
-│   │   └── constants.py   # 定数・プロンプト設定
-│   ├── pyproject.toml     # パッケージおよびスクリプトの依存関係・ビルド設定 (uv/hatchling)
-├── research_reports/      # 生成された最終マークダウンレポートの保存先
-├── plan-logs/             # AIの実行計画・ログのアーカイブ用ディレクトリ
-└── README.md              # 当ドキュメント
+│   │   ├── main.py        # Main execution flow using CrewAI Flows
+│   │   ├── crew.py        # Agent and task instance management
+│   │   ├── state.py       # Pydantic-based State schema definitions
+│   │   ├── config/        # YAML definition files for agents and tasks
+│   │   └── constants.py   # Constants and prompt configurations
+│   ├── pyproject.toml     # Package and script dependencies/build settings (uv/hatchling)
+├── research_reports/      # Destination for generated final Markdown reports
+├── plan-logs/             # Archive directory for AI execution plans and logs
+└── README.md              # This document
 ```
 
-## 開発と変更の履歴 (Change History)
+## Change History
 
-本プロジェクトは継続的にAIと人間のペアで拡張されています。直近の主要な変更履歴は以下の通りです：
+This project is continuously expanded by an AI and human pair. Key recent changes include:
 
-1. **初期構築**: クライアントからトピックを受け取り調査を行う初期構造のコミット。
-2. **LangGraphからCrewAIへの移行**: 状態管理をPydanticに移行し、YAMLベースでのエージェント定義および CrewAI フローアーキテクチャ（`DeepResearchFlow`）を実装。
-3. **ハイブリッド実行と高度な推敲の導入 (Advanced Hybrid Deep Research)**: `--advanced` フラグによるPydantic構造化抽出の導入、ローカルでのトークン溢れを防ぐSynthesizerデータ圧縮、OpenRouter経由での高品質クラウドモデルの活用ロジックを追加。
-4. **Git管理の最適化**: `.venv` などの環境ファイルの無視設定を追加。
-5. **プロジェクト改名**: プロジェクトおよびリポジトリ名を `e1_drlocal` に統一。
+1. **Initial Build**: Committed the initial structure to receive topics from clients and conduct research.
+2. **Migration from LangGraph to CrewAI**: Migrated state management to Pydantic, implemented YAML-based agent definitions and CrewAI flow architecture (`DeepResearchFlow`).
+3. **Advanced Hybrid Deep Research**: Introduced Pydantic structured extraction via the `--advanced` flag, Synthesizer data compression to prevent local token overflow, and logic to leverage high-quality cloud models via OpenRouter.
+4. **Git Management Optimization**: Added ignore settings for environment files like `.venv`.
+5. **Project Rename**: Unified the project and repository names to `e1_drlocal`.
 
-## 使い方 (Usage)
+## Usage
 
-プロジェクトは `uv` パッケージマネージャーなどを用いてセットアップし実行します。
+Set up and run the project using a package manager like `uv`.
 
 ```bash
-# 基本的な起動（トピックは対話的に入力）
+# Basic start (interactive topic input)
 uv run kickoff
 
-# オプションを指定した起動例
-# クラウド(OpenRouter)経由でアドバンスド機能を利用して特定トピックを調査
-uv run kickoff --online --topic "大規模言語モデルの最新動向(2026年)"
+# Example with options
+# Research a specific topic using advanced features via the cloud (OpenRouter)
+uv run kickoff --online --topic "Latest trends in Large Language Models (2026)"
 
-# ローカルの軽量モデルで実行
-uv run kickoff --light --topic "ローカルLLMアーキテクチャについて"
+# Run with local lightweight models
+uv run kickoff --light --topic "About local LLM architectures"
 ```
