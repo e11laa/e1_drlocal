@@ -289,7 +289,10 @@ class DeepResearchFlow(Flow[ResearchState]):
             print("   ⚠️ 有効なクエリがないため Researcher フェーズをスキップします。")
             return self.state.research_data
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(3, len(self.state.queries)))) as executor:
+        is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
+        worker_limit = max(1, min(3, len(self.state.queries))) if is_online else 1
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_limit) as executor:
             futures = [executor.submit(_fetch_for_query, i, query) for i, query in enumerate(self.state.queries)]
             
             # 順番通りにするためソート用の辞書を作成
@@ -541,8 +544,11 @@ class DeepResearchFlow(Flow[ResearchState]):
                 return idx, f"## {chapter['title']}\n\n(執筆エラー: {e})"
 
         is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
-        quality_reqs = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
+        quality_reqs_raw = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
         fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
+        
+        # 明示的に変数を展開する（CrewAIのテンプレート処理漏れ対策）
+        quality_reqs = quality_reqs_raw.format(fetched_urls_list=fetched_urls_str)
 
         if not chapters:
             # フォールバック: 一括生成

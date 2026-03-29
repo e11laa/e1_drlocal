@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from ..constants import (
     SEARXNG_URL,
     RE_RANK_MAX_RESULTS,
+    RE_RANK_MAX_RESULTS_LIGHT,
     RE_RANK_TOP_K,
     RERANKER_MODEL_ONLINE,
     RERANKER_MODEL_LOCAL,
@@ -54,9 +55,12 @@ class SearxNGSearchTool(BaseTool):
             model = RERANKER_MODEL_LOCAL
         
         # セレクション用のコンテキスト作成
+        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
+        snippet_limit = 120 if is_light else 200
+        
         candidates_text = ""
         for i, res in enumerate(results):
-            candidates_text += f"ID: {i}\nTitle: {res['title']}\nSnippet: {res['content'][:200]}\nURL: {res['url']}\n---\n"
+            candidates_text += f"ID: {i}\nTitle: {res['title']}\nSnippet: {res['content'][:snippet_limit]}\nURL: {res['url']}\n---\n"
 
         prompt = f"""あなたは優秀なリサーチ選別官です。
 ユーザーのリサーチクエリに対して、提供された検索結果リストの中から、最も情報の信頼性が高く、具体的で、調査の核心に迫るURLを最大{RE_RANK_TOP_K}件だけ選んでください。
@@ -134,9 +138,12 @@ class SearxNGSearchTool(BaseTool):
                 })
 
             # リランキングの実行
+            is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
+            max_results = RE_RANK_MAX_RESULTS_LIGHT if is_light else RE_RANK_MAX_RESULTS
+
             if len(raw_results) > RE_RANK_TOP_K:
-                # 最大 RE_RANK_MAX_RESULTS 件を対象にリランク
-                to_rerank = raw_results[:RE_RANK_MAX_RESULTS]
+                # 指定された件数を対象にリランク
+                to_rerank = raw_results[:max_results]
                 results = self._rerank_results(query, to_rerank)
             else:
                 results = raw_results
