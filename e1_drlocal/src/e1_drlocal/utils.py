@@ -183,8 +183,13 @@ def format_report_references(report: str, fetched_urls: list[str], strict_source
         report = re.sub(r"\[\[REF:\s*" + re.escape(url) + r"\s*\]\]", f"[{idx}]", report)
     
     # 6. 既存の「参考文献」セクションがあれば、一旦削除して再構築する
-    report = re.split(r"\n\n---\n## 参考文献一覧", report)[0]
-    report = re.split(r"\n## 参考文献", report)[0]
+    #    末尾から検索し、見出しレベルの揺れ (##, ###) や改行数の差異に対応。
+    #    本文中に偶然「参考文献」が出現しても、最後のものだけを切り取ることで本文消失を防ぐ。
+    ref_match = None
+    for m in re.finditer(r"\n+(?:---\n)?#{2,3}\s*参考文献", report):
+        ref_match = m  # 最後のマッチを保持
+    if ref_match:
+        report = report[:ref_match.start()]
     report = report.strip()
 
     # 7. 参考文献リストの構築

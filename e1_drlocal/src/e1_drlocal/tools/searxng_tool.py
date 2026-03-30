@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 import re
 from typing import Type
 
@@ -10,6 +9,7 @@ import requests
 import litellm
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+from tenacity import Retrying, wait_exponential, stop_after_attempt
 
 from ..constants import (
     SEARXNG_URL,
@@ -35,6 +35,8 @@ class SearxNGSearchTool(BaseTool):
     )
     args_schema: Type[BaseModel] = SearxNGSearchInput
     searxng_url: str = SEARXNG_URL
+    is_online: bool = False  # DI: オンラインモードフラグ
+    is_light: bool = False   # DI: ライトモードフラグ
 
     def _rerank_results(self, query: str, results: list[dict]) -> list[dict]:
         """LLM-as-a-Judge による検索結果の再ランク付け"""
@@ -44,23 +46,20 @@ class SearxNGSearchTool(BaseTool):
 
         logger.info(f"   ⚖️ [Reranker] {len(results)}件の結果から最適なソースを選別中...")
         
-        is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
-        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
-
-        if is_online:
+        if self.is_online:
             model = RERANKER_MODEL_ONLINE
-        elif is_light:
+        elif self.is_light:
             model = RERANKER_MODEL_LIGHT
         else:
             model = RERANKER_MODEL_LOCAL
         
         # セレクション用のコンテキスト作成
-        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
-        snippet_limit = 120 if is_light else 200
+        snippet_limit = 120 if self.is_light else 200
         
-        candidates_text = ""
+        candidates_parts = []
         for i, res in enumerate(results):
-            candidates_text += f"ID: {i}\nTitle: {res['title']}\nSnippet: {res['content'][:snippet_limit]}\nURL: {res['url']}\n---\n"
+            candidates_parts.append(f"ID: {i}\nTitle: {res['title']}\nSnippet: {res['content'][:snippet_limit]}\nURL: {res['url']}\n---")
+        candidates_text = "\n".join(candidates_parts)
 
         prompt = f"""あなたは優秀なリサーチ選別官です。
 ユーザーのリサーチクエリに対して、提供された検索結果リストの中から、最も情報の信頼性が高く、具体的で、調査の核心に迫るURLを最大{RE_RANK_TOP_K}件だけ選んでください。
@@ -81,12 +80,22 @@ class SearxNGSearchTool(BaseTool):
 """
 
         try:
-            response = litellm.completion(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"} if "ollama" not in model else None,
-                temperature=0,
-            )
+            retry_min = 5 if self.is_online else 2
+            retry_max = 60 if self.is_online else 10
+            retry_attempts = 5 if self.is_online else 3
+            
+            for attempt in Retrying(
+                wait=wait_exponential(multiplier=1, min=retry_min, max=retry_max),
+                stop=stop_after_attempt(retry_attempts),
+                reraise=True
+            ):
+                with attempt:
+                    response = litellm.completion(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"} if "ollama" not in model else None,
+                        temperature=0,
+                    )
             content = response.choices[0].message.content.strip()
             
             # JSON 抽出 (qwen などの小型モデルが余計な文言を付けた場合の対策)
@@ -138,8 +147,7 @@ class SearxNGSearchTool(BaseTool):
                 })
 
             # リランキングの実行
-            is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
-            max_results = RE_RANK_MAX_RESULTS_LIGHT if is_light else RE_RANK_MAX_RESULTS
+            max_results = RE_RANK_MAX_RESULTS_LIGHT if self.is_light else RE_RANK_MAX_RESULTS
 
             if len(raw_results) > RE_RANK_TOP_K:
                 # 指定された件数を対象にリランク

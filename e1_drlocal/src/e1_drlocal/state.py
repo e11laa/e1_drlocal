@@ -26,3 +26,9 @@ class ResearchState(BaseModel):
     suggested_queries: List[str] = Field(default_factory=list)
     execution_times: dict = Field(default_factory=dict)
     cli_args: dict = Field(default_factory=dict)
+    
+    # モード設定フラグ (DI集約用)
+    is_online: bool = False
+    is_light: bool = False
+    is_advanced: bool = False
+    is_strict: bool = False

@@ -1,8 +1,6 @@
-import os
 from pathlib import Path
 from typing import Optional, List  # List を追加
 
-import sys
 import yaml
 from crewai import Agent, Crew, Process, Task, LLM
 from pydantic import BaseModel, Field  # 追加: 構造化出力用
@@ -43,21 +41,39 @@ class DeepResearchCrew:
         commander_model: str = DEFAULT_COMMANDER_MODEL,
         worker_model: str = DEFAULT_WORKER_MODEL,
         writer_model: str = DEFAULT_WRITER_MODEL,
+        *,
+        is_online: bool = False,
+        is_light: bool = False,
+        is_advanced: bool = False,
     ):
         self.scout_model = scout_model
         self.commander_model = commander_model
         self.worker_model = worker_model
         self.writer_model = writer_model
+        self.is_online = is_online
+        self.is_light = is_light
+        self.is_advanced = is_advanced
 
         # YAML 設定のロード
         self._agents_cfg = _load_yaml("agents.yaml")
         self._tasks_cfg = _load_yaml("tasks.yaml")
 
+        # 共有ツールの初期化
+        self._search_tool = SearxNGSearchTool(is_online=self.is_online, is_light=self.is_light)
+        self._web_fetch_tool = WebFetchTool(is_online=self.is_online)
+
+        # 逐次実行用エージェントの事前生成 (再利用可能)
+        self._planner_agent = self._create_planner_agent()
+        self._reviewer_agent = self._create_reviewer_agent()
+        self._outliner_agent = self._create_outliner_agent()
+        self._synthesizer_agent = self._create_synthesizer_agent()
+        self._editor_agent = self._create_editor_agent()
+
     # ==========================================
-    # エージェント定義
+    # エージェント構築ロジック (内部用)
     # ==========================================
 
-    def planner(self) -> Agent:
+    def _create_planner_agent(self) -> Agent:
         cfg = self._agents_cfg["planner"]
         return Agent(
             role=cfg["role"],
@@ -67,26 +83,7 @@ class DeepResearchCrew:
             verbose=True,
         )
 
-    def researcher(self) -> Agent:
-        cfg = self._agents_cfg["researcher"]
-        
-        # --light の場合のみ Temperature を下げる
-        llm = self.worker_model
-        if "--light" in sys.argv:
-            llm = LLM(model=self.worker_model, temperature=0.1)
-            
-        return Agent(
-            role=cfg["role"],
-            goal=cfg["goal"],
-            backstory=cfg["backstory"],
-            llm=llm,
-            tools=[SearxNGSearchTool(), WebFetchTool()],
-            verbose=True,
-            max_iter=5,  # ツール利用の無限ループ防止
-            max_retry_limit=2,
-        )
-
-    def reviewer(self) -> Agent:
+    def _create_reviewer_agent(self) -> Agent:
         cfg = self._agents_cfg["reviewer"]
         return Agent(
             role=cfg["role"],
@@ -96,7 +93,7 @@ class DeepResearchCrew:
             verbose=True,
         )
 
-    def outliner(self) -> Agent:
+    def _create_outliner_agent(self) -> Agent:
         cfg = self._agents_cfg["outliner"]
         return Agent(
             role=cfg["role"],
@@ -106,7 +103,61 @@ class DeepResearchCrew:
             verbose=True,
         )
 
+    def _create_synthesizer_agent(self) -> Agent:
+        cfg = self._agents_cfg["synthesizer"]
+        return Agent(
+            role=cfg["role"],
+            goal=cfg["goal"],
+            backstory=cfg["backstory"],
+            llm=self.scout_model,
+            verbose=True,
+        )
+
+    def _create_editor_agent(self) -> Agent:
+        cfg = self._agents_cfg["editor"]
+        return Agent(
+            role=cfg["role"],
+            goal=cfg["goal"],
+            backstory=cfg["backstory"],
+            llm=self.commander_model,
+            verbose=True,
+        )
+
+    # ==========================================
+    # 公開エージェント取得メソッド (Flowから呼び出し)
+    # ==========================================
+
+    def planner(self) -> Agent:
+        return self._planner_agent
+
+    def researcher(self) -> Agent:
+        """並列実行されるため、呼び出しごとに個別のインスタンスを生成する (スレッドセーフティ確保)"""
+        cfg = self._agents_cfg["researcher"]
+        
+        # --light の場合のみ Temperature を下げる
+        llm = self.worker_model
+        if self.is_light:
+            llm = LLM(model=self.worker_model, temperature=0.1)
+
+        return Agent(
+            role=cfg["role"],
+            goal=cfg["goal"],
+            backstory=cfg["backstory"],
+            llm=llm,
+            tools=[self._search_tool, self._web_fetch_tool],
+            verbose=True,
+            max_iter=5,  # ツール利用の無限ループ防止
+            max_retry_limit=2,
+        )
+
+    def reviewer(self) -> Agent:
+        return self._reviewer_agent
+
+    def outliner(self) -> Agent:
+        return self._outliner_agent
+
     def writer(self) -> Agent:
+        """多章並列執筆される場合があるため、都度生成を選択 (安全性優先)"""
         cfg = self._agents_cfg["writer"]
         return Agent(
             role=cfg["role"],
@@ -117,24 +168,10 @@ class DeepResearchCrew:
         )
 
     def synthesizer(self) -> Agent:
-        cfg = self._agents_cfg["synthesizer"]
-        return Agent(
-            role=cfg["role"],
-            goal=cfg["goal"],
-            backstory=cfg["backstory"],
-            llm=self.scout_model,
-            verbose=True,
-        )
+        return self._synthesizer_agent
 
     def editor(self) -> Agent:
-        cfg = self._agents_cfg["editor"]
-        return Agent(
-            role=cfg["role"],
-            goal=cfg["goal"],
-            backstory=cfg["backstory"],
-            llm=self.commander_model,
-            verbose=True,
-        )
+        return self._editor_agent
 
     # ==========================================
     # タスク定義(エージェントを引数で渡す)
@@ -149,7 +186,7 @@ class DeepResearchCrew:
             "agent": agent,
         }
         
-        if os.environ.get("DEEP_RESEARCH_ADVANCED") == "1":
+        if self.is_advanced:
             task_args["output_pydantic"] = PlannerOutput
             
         return Task(**task_args)

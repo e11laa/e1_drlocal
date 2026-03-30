@@ -6,7 +6,11 @@ import requests
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-import os
+from bs4 import BeautifulSoup
+
+import logging
+logger = logging.getLogger("e1_drlocal")
+
 from ..constants import FETCH_TIMEOUT, FETCH_TEXT_LIMIT_LOCAL, FETCH_TEXT_LIMIT_ONLINE
 
 
@@ -22,6 +26,7 @@ class WebFetchTool(BaseTool):
         "HTML タグを除去した本文テキストを返す。"
     )
     args_schema: Type[BaseModel] = WebFetchInput
+    is_online: bool = False  # DI: オンラインモードフラグ
     
     def _truncate_text(self, text: str, limit: int) -> str:
         """指定文字数制限手前の「句点」や「改行」でセマンティックに切り詰める"""
@@ -56,7 +61,7 @@ class WebFetchTool(BaseTool):
                 "Accept-Language": "ja,en;q=0.5",
             }
 
-            limit = FETCH_TEXT_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else FETCH_TEXT_LIMIT_LOCAL
+            limit = FETCH_TEXT_LIMIT_ONLINE if self.is_online else FETCH_TEXT_LIMIT_LOCAL
 
             # === 1. Jina Reader API での取得を試行 (SPA/JS対応 & 高品質Markdown) ===
             try:
@@ -68,9 +73,9 @@ class WebFetchTool(BaseTool):
                 else:
                     # HTTPエラー時はフォールバックへ
                     pass
-            except requests.RequestException as e:
+            except requests.RequestException:
                 # ネットワーク例外の場合は原因をログ出ししてフォールバックへ進む
-                print(f"   [WebFetch] Jina API Timeout/Error ({url}), falling back to direct fetch.")
+                logger.warning(f"   [WebFetch] Jina API Timeout/Error ({url}), falling back to direct fetch.")
 
             # === 2. フォールバック: 標準のHTML取得とBeautifulSoup ===
             resp = requests.get(url, headers=headers, timeout=FETCH_TIMEOUT)
@@ -78,24 +83,13 @@ class WebFetchTool(BaseTool):
             resp.encoding = resp.apparent_encoding or "utf-8"
 
             # BeautifulSoup でテキスト抽出
-            try:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, "html.parser")
+            soup = BeautifulSoup(resp.text, "html.parser")
 
-                # 不要な要素を除去
-                for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
-                    tag.decompose()
+            # 不要な要素を除去
+            for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+                tag.decompose()
 
-                text = soup.get_text(separator="\n", strip=True)
-            except ImportError:
-                # BeautifulSoup が無い場合は正規表現でフォールバック
-                import re
-                text = resp.text
-                # scriptとstyleタグの中身(JavaScriptやCSSのコード)を先に消去
-                text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.IGNORECASE | re.DOTALL)
-                # 残りのHTMLタグを消去
-                text = re.sub(r"<[^>]+>", "", text)
-                text = re.sub(r"\s+", " ", text).strip()
+            text = soup.get_text(separator="\n", strip=True)
 
             # テキストが長すぎる場合は切り詰め
             text = self._truncate_text(text, limit)

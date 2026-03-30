@@ -13,11 +13,13 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
+from typing import Optional
 
 from crewai.flow.flow import Flow, listen, router, start
 from pydantic import BaseModel
-from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from tenacity import Retrying, wait_exponential, stop_after_attempt
 
 from .state import ResearchState
 from .crew import DeepResearchCrew
@@ -39,6 +41,20 @@ from .constants import (
     QUERY_FORMAT_INSTRUCTION,
     REPORT_QUALITY_REQUIREMENTS,
     LIGHT_REPORT_QUALITY_REQUIREMENTS,
+    RETRY_MIN_DEFAULT,
+    RETRY_MAX_DEFAULT,
+    RETRY_ATTEMPTS_DEFAULT,
+    RETRY_MIN_ONLINE,
+    RETRY_MAX_ONLINE,
+    RETRY_ATTEMPTS_ONLINE,
+    ROUTE_SUFFICIENT,
+    ROUTE_NEED_MORE,
+    VERDICT_PASS,
+    VERDICT_FAIL,
+    VERDICT_FAIL_MARKER,
+    MISSING_DIMS_MARKER,
+    OUTLINE_CHAPTER_MARKER,
+    REPORTER_PARSE_MARKER,
 )
 from .utils import (
     extract_urls,
@@ -64,14 +80,31 @@ class DeepResearchFlow(Flow[ResearchState]):
         commander_model: str = DEFAULT_COMMANDER_MODEL,
         worker_model: str = DEFAULT_WORKER_MODEL,
         writer_model: str = DEFAULT_WRITER_MODEL,
+        *,
+        is_online: bool = False,
+        is_light: bool = False,
+        is_advanced: bool = False,
+        is_strict: bool = False,
+        max_workers: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        # DI: モードフラグをインスタンス属性として保持
+        self.state.is_online = is_online
+        self.state.is_light = is_light
+        self.state.is_advanced = is_advanced
+        self.state.is_strict = is_strict
+        self.max_workers = max_workers if max_workers is not None else 1
+        self._urls_lock = threading.Lock()
+
         self.crew_instance = DeepResearchCrew(
             scout_model=scout_model,
             commander_model=commander_model,
             worker_model=worker_model,
             writer_model=writer_model,
+            is_online=is_online,
+            is_light=is_light,
+            is_advanced=is_advanced,
         )
         self.timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
         self.current_time = datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M")
@@ -112,6 +145,20 @@ class DeepResearchFlow(Flow[ResearchState]):
         elif level == "error":
             self.logger.error(message)
 
+    def _get_retry_config(self):
+        """現在のモードに基づいたリトライ設定を返す"""
+        if self.state.is_online:
+            return {
+                "min": RETRY_MIN_ONLINE,
+                "max": RETRY_MAX_ONLINE,
+                "attempts": RETRY_ATTEMPTS_ONLINE
+            }
+        return {
+            "min": RETRY_MIN_DEFAULT,
+            "max": RETRY_MAX_DEFAULT,
+            "attempts": RETRY_ATTEMPTS_DEFAULT
+        }
+
     # ==========================================
     # 1. トピック受取(エントリポイント)
     # ==========================================
@@ -130,8 +177,8 @@ class DeepResearchFlow(Flow[ResearchState]):
                 sys.exit(0)
             self.state.topic = topic
 
-        print(f"\n📋 トピック: {topic}")
-        print("=" * 60)
+        self.log(f"\n📋 トピック: {topic}")
+        self.log("=" * 60)
         return topic
 
     # ==========================================
@@ -173,19 +220,23 @@ class DeepResearchFlow(Flow[ResearchState]):
                     + "\n\n上記の不足軸を優先的にカバーする新しいキーワードクエリを生成せよ。前回と同じクエリを繰り返してはならない。\n"
                 )
 
-        # Planner Crew を kickoff (リトライ付き)
-        @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-        def _kickoff_planner():
-            return self.crew_instance.planning_crew().kickoff(
-                inputs={
-                    "topic": self.state.topic,
-                    "current_time": self.current_time,
-                    "feedback_section": feedback_section,
-                }
-            )
+        # Planner Crew を kickoff (動的バックオフ付き)
+        cfg = self._get_retry_config()
 
         try:
-            result = _kickoff_planner()
+            for attempt in Retrying(
+                wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                stop=stop_after_attempt(cfg["attempts"]), 
+                reraise=True
+            ):
+                with attempt:
+                    result = self.crew_instance.planning_crew().kickoff(
+                        inputs={
+                            "topic": self.state.topic,
+                            "current_time": self.current_time,
+                            "feedback_section": feedback_section,
+                        }
+                    )
             
             # もし Pydantic 出力 (Advanced モード) が得られた場合、正規表現パースをスキップ
             if hasattr(result, "pydantic") and result.pydantic:
@@ -203,7 +254,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                 
             raw_output = result.raw if hasattr(result, "raw") else str(result)
         except Exception as e:
-            print(f"   ❌ Planner 実行エラー (リトライ上限到達): {e}")
+            self.log(f"   ❌ Planner 実行エラー (リトライ上限到達): {e}", level="error")
             raw_output = ""
 
         # リサーチプランの抽出
@@ -255,18 +306,23 @@ class DeepResearchFlow(Flow[ResearchState]):
         def _fetch_for_query(idx, query):
             self.log(f"\n   🔎 クエリ {idx + 1}/{len(self.state.queries)}: {query}")
             
-            @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_researcher():
-                return self.crew_instance.research_crew().kickoff(
-                    inputs={
-                        "research_plan": self.state.research_plan,
-                        "query": query,
-                    }
-                )
-
+            cfg = self._get_retry_config()
+            
             try:
-                # 毎回独立した Crew インスタンスを生成して実行
-                result = _kickoff_researcher()
+                # 毎回独立した Crew インスタンスを生成して実行 (動的バックオフ付き)
+                for attempt in Retrying(
+                    wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                    stop=stop_after_attempt(cfg["attempts"]), 
+                    reraise=True
+                ):
+                    with attempt:
+                        result = self.crew_instance.research_crew().kickoff(
+                            inputs={
+                                "research_plan": self.state.research_plan,
+                                "query": query,
+                            }
+                        )
+                
                 raw_output = result.raw if hasattr(result, "raw") else str(result)
                 
                 # urls
@@ -277,7 +333,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                     "urls": found_urls
                 }
             except Exception as e:
-                print(f"   ❌ エラー: {query} → {e}")
+                self.log(f"   ❌ エラー: {query} → {e}", level="error")
                 return {
                     "idx": idx,
                     "output": "", # エラーによる無駄なノイズテキストを渡さない
@@ -286,11 +342,11 @@ class DeepResearchFlow(Flow[ResearchState]):
 
         # ThreadPoolExecutor でクエリ数分を並列実行
         if not self.state.queries:
-            print("   ⚠️ 有効なクエリがないため Researcher フェーズをスキップします。")
+            self.log("   ⚠️ 有効なクエリがないため Researcher フェーズをスキップします。", level="warning")
             return self.state.research_data
 
-        is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
-        worker_limit = max(1, min(3, len(self.state.queries))) if is_online else 1
+        # クラウド時はレートリミット抑制のため、指定された並列数を使用
+        worker_limit = self.max_workers
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_limit) as executor:
             futures = [executor.submit(_fetch_for_query, i, query) for i, query in enumerate(self.state.queries)]
@@ -300,9 +356,10 @@ class DeepResearchFlow(Flow[ResearchState]):
             for future in concurrent.futures.as_completed(futures):
                 res = future.result()
                 results_dict[res["idx"]] = res["output"]
-                for url in res["urls"]:
-                    if url not in self.state.fetched_urls:
-                        self.state.fetched_urls.append(url)
+                with self._urls_lock:
+                    for url in res["urls"]:
+                        if url not in self.state.fetched_urls:
+                            self.state.fetched_urls.append(url)
             
             # クエリの順番通りに、かつ空ではない結果だけを格納
             for i in range(len(self.state.queries)):
@@ -312,28 +369,32 @@ class DeepResearchFlow(Flow[ResearchState]):
         new_data = "".join(all_results)
         
         # アドバンスドモード指定があり、かつ初回ループではない(既存データがある)場合は圧縮実行
-        if os.environ.get("DEEP_RESEARCH_ADVANCED") == "1" and self.state.research_data.strip():
-            print("\n🧹 [Synthesizer] 既存データと新規データの重複排除・圧縮を実行します...")
-            @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_synthesizer():
-                return self.crew_instance.synthesizer_crew().kickoff(
-                    inputs={
-                        "topic": self.state.topic,
-                        "existing_data": self.state.research_data,
-                        "new_data": new_data,
-                    }
-                )
+        if self.state.is_advanced and self.state.research_data.strip():
+            self.log("\n🧹 [Synthesizer] 既存データと新規データの重複排除・圧縮を実行します...")
+            cfg = self._get_retry_config()
             try:
-                res = _kickoff_synthesizer()
+                for attempt in Retrying(
+                    wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                    stop=stop_after_attempt(cfg["attempts"]), 
+                    reraise=True
+                ):
+                    with attempt:
+                        res = self.crew_instance.synthesizer_crew().kickoff(
+                            inputs={
+                                "topic": self.state.topic,
+                                "existing_data": self.state.research_data,
+                                "new_data": new_data,
+                            }
+                        )
                 self.state.research_data = res.raw if hasattr(res, "raw") else str(res)
-                print("   ✨ 圧縮完了")
+                self.log("   ✨ 圧縮完了")
             except Exception as e:
-                print(f"   ❌ Synthesizer エラー: {e} -> 生データをそのまま結合します")
+                self.log(f"   ❌ Synthesizer エラー: {e} -> 生データをそのまま結合します", level="error")
                 self.state.research_data += new_data
         else:
             self.state.research_data += new_data
 
-        print(f"\n📊 [Researcher] 合計フェッチ済みURL: {len(self.state.fetched_urls)}件")
+        self.log(f"\n📊 [Researcher] 合計フェッチ済みURL: {len(self.state.fetched_urls)}件")
         
         elapsed = time.time() - start_t
         self.state.execution_times["Researcher"] = self.state.execution_times.get("Researcher", 0) + elapsed
@@ -357,36 +418,39 @@ class DeepResearchFlow(Flow[ResearchState]):
         start_t = time.time()
         self.log(f"\n⚖️ [Reviewer] 厳格な品質検証... (Loop {self.state.loop_count})")
 
-        limit = REVIEW_DATA_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else REVIEW_DATA_LIMIT_LOCAL
+        limit = REVIEW_DATA_LIMIT_ONLINE if self.state.is_online else REVIEW_DATA_LIMIT_LOCAL
         data_for_review = self.state.research_data[:limit]
 
-        @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-        def _kickoff_reviewer():
-            return self.crew_instance.review_crew().kickoff(
-                inputs={
-                    "topic": self.state.topic,
-                    "current_time": self.current_time,
-                    "research_plan": self.state.research_plan,
-                    "research_data": data_for_review,
-                }
-            )
-
+        cfg = self._get_retry_config()
         try:
-            result = _kickoff_reviewer()
+            for attempt in Retrying(
+                wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                stop=stop_after_attempt(cfg["attempts"]), 
+                reraise=True
+            ):
+                with attempt:
+                    result = self.crew_instance.review_crew().kickoff(
+                        inputs={
+                            "topic": self.state.topic,
+                            "current_time": self.current_time,
+                            "research_plan": self.state.research_plan,
+                            "research_data": data_for_review,
+                        }
+                    )
             critic_text = result.raw if hasattr(result, "raw") else str(result)
         except Exception as e:
             self.log(f"   ❌ Reviewer 実行エラー (リトライ上限到達): {e}", level="error")
             critic_text = "FAIL ❌"
 
         # PASS/FAIL 判定
-        is_pass = "PASS" in critic_text.upper()
-        is_fail = "FAIL" in critic_text.upper()
+        is_pass = VERDICT_PASS in critic_text.upper()
+        is_fail = VERDICT_FAIL in critic_text.upper()
         self.state.is_sufficient = is_pass and not is_fail
 
         # 不足調査軸の抽出
         missing_dims = []
-        if "MISSING_DIMENSIONS:" in critic_text:
-            missing_section = critic_text.split("MISSING_DIMENSIONS:")[1]
+        if MISSING_DIMS_MARKER in critic_text:
+            missing_section = critic_text.split(MISSING_DIMS_MARKER)[1]
             for delimiter in ["FEEDBACK:", "SUGGESTED_QUERIES:", "VERDICT:"]:
                 if delimiter in missing_section:
                     missing_section = missing_section.split(delimiter)[0]
@@ -431,10 +495,10 @@ class DeepResearchFlow(Flow[ResearchState]):
         if self.state.is_sufficient or self.state.loop_count >= MAX_LOOPS:
             if self.state.loop_count >= MAX_LOOPS and not self.state.is_sufficient:
                 self.log(f"\n   ⚠️ ループ上限 ({MAX_LOOPS}) に到達。Outliner へ進みます。", level="warning")
-            return "sufficient"
+            return ROUTE_SUFFICIENT
         else:
             self.log(f"\n   🔄 追加調査が必要。Planner へ差し戻します。")
-            return "need_more_research"
+            return ROUTE_NEED_MORE
 
     # ==========================================
     # 6. Outliner(構成案作成)
@@ -445,28 +509,31 @@ class DeepResearchFlow(Flow[ResearchState]):
         start_t = time.time()
         self.log("\n🏗️ [Outliner] レポート構成を設計中...")
 
-        limit = REVIEW_DATA_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else REVIEW_DATA_LIMIT_LOCAL
+        limit = REVIEW_DATA_LIMIT_ONLINE if self.state.is_online else REVIEW_DATA_LIMIT_LOCAL
         data_for_outline = self.state.research_data[:limit]
 
-        @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-        def _kickoff_outliner():
-            return self.crew_instance.outline_crew().kickoff(
-                inputs={
-                    "topic": self.state.topic,
-                    "research_data": data_for_outline,
-                }
-            )
-
+        cfg = self._get_retry_config()
         try:
-            result = _kickoff_outliner()
+            for attempt in Retrying(
+                wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                stop=stop_after_attempt(cfg["attempts"]), 
+                reraise=True
+            ):
+                with attempt:
+                    result = self.crew_instance.outline_crew().kickoff(
+                        inputs={
+                            "topic": self.state.topic,
+                            "research_data": data_for_outline,
+                        }
+                    )
             raw_output = result.raw if hasattr(result, "raw") else str(result)
         except Exception as e:
             self.log(f"   ❌ Outliner 実行エラー (リトライ上限到達): {e}", level="error")
             raw_output = ""
         self.state.outline = raw_output
 
-        chapter_count = raw_output.count("CHAPTER:")
-        self.log(f"\n   📑 章構成: CHAPTER: が {chapter_count}回出現")
+        chapter_count = raw_output.count(OUTLINE_CHAPTER_MARKER)
+        self.log(f"\n   📑 章構成: {OUTLINE_CHAPTER_MARKER} が {chapter_count}回出現")
         
         elapsed = time.time() - start_t
         self.state.execution_times["Outliner"] = self.state.execution_times.get("Outliner", 0) + elapsed
@@ -481,12 +548,12 @@ class DeepResearchFlow(Flow[ResearchState]):
         start_t = time.time()
         self.log("\n📝 [Writer] 最終レポート執筆開始...")
 
-        limit = REVIEW_DATA_LIMIT_ONLINE if os.environ.get("DEEP_RESEARCH_ONLINE") == "1" else REVIEW_DATA_LIMIT_LOCAL
+        limit = REVIEW_DATA_LIMIT_ONLINE if self.state.is_online else REVIEW_DATA_LIMIT_LOCAL
         outline = self.state.outline
         research_data = self.state.research_data[:limit]
         chapters = parse_chapters(outline)
         
-        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
+        is_light = self.state.is_light
         quality_reqs_raw = LIGHT_REPORT_QUALITY_REQUIREMENTS if is_light else REPORT_QUALITY_REQUIREMENTS
         fetched_urls_str = "\n".join([f"  * {url}" for url in self.state.fetched_urls]) if self.state.fetched_urls else "  * (有効なソースなし)"
         
@@ -498,7 +565,7 @@ class DeepResearchFlow(Flow[ResearchState]):
             if not is_light or not full_data:
                 return full_data
             
-            sections = full_data.split("### 解析報告:")
+            sections = full_data.split(REPORTER_PARSE_MARKER)
             relevant_sections = []
             
             # 章タイトルのキーワード抽出 (2文字以上の名詞的なもの)
@@ -509,7 +576,7 @@ class DeepResearchFlow(Flow[ResearchState]):
                     continue
                 # キーワードが1つでも含まれていれば採用、または分量が少なければ全部送る
                 if any(k.lower() in section.lower() for k in keywords) or len(sections) <= 3:
-                    relevant_sections.append("### 解析報告:" + section)
+                    relevant_sections.append(REPORTER_PARSE_MARKER + section)
             
             return "\n".join(relevant_sections) if relevant_sections else full_data
 
@@ -531,19 +598,23 @@ class DeepResearchFlow(Flow[ResearchState]):
                 f"- **【引用形式の厳守】** 実際のURLを用いて {cite_instruction} 形式で明記せよ。提供されたデータに含まれる収集済みのURLをそのまま使用すること。"
             )
 
-            @retry(wait=wait_exponential(multiplier=1, min=3, max=15), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_writer_chapter():
-                return self.crew_instance.writing_crew().kickoff(
-                    inputs={
-                        "topic": self.state.topic,
-                        "write_instruction": write_instruction,
-                        "quality_requirements": quality_reqs,
-                        "fetched_urls_list": fetched_urls_str,
-                    }
-                )
-
+            cfg = self._get_retry_config()
+            
             try:
-                result = _kickoff_writer_chapter()
+                for attempt in Retrying(
+                    wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                    stop=stop_after_attempt(cfg["attempts"]), 
+                    reraise=True
+                ):
+                    with attempt:
+                        result = self.crew_instance.writing_crew().kickoff(
+                            inputs={
+                                "topic": self.state.topic,
+                                "write_instruction": write_instruction,
+                                "quality_requirements": quality_reqs,
+                                "fetched_urls_list": fetched_urls_str,
+                            }
+                        )
                 self.log(f"  🏁 章 {idx + 1} 執筆完了")
                 return idx, (result.raw if hasattr(result, "raw") else str(result))
             except Exception as e:
@@ -565,26 +636,29 @@ class DeepResearchFlow(Flow[ResearchState]):
                 "5. ## 参考文献\n\n"
                 f"注意：引用形式は {cite_instruction} を厳守せよ。"
             )
-            @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_writer_fallback():
-                return self.crew_instance.writing_crew().kickoff(
-                    inputs={
-                        "topic": self.state.topic,
-                        "write_instruction": write_instruction,
-                        "quality_requirements": quality_reqs,
-                        "fetched_urls_list": fetched_urls_str,
-                    }
-                )
-
+            cfg = self._get_retry_config()
             try:
-                result = _kickoff_writer_fallback()
+                for attempt in Retrying(
+                    wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]),
+                    stop=stop_after_attempt(cfg["attempts"]),
+                    reraise=True
+                ):
+                    with attempt:
+                        result = self.crew_instance.writing_crew().kickoff(
+                            inputs={
+                                "topic": self.state.topic,
+                                "write_instruction": write_instruction,
+                                "quality_requirements": quality_reqs,
+                                "fetched_urls_list": fetched_urls_str,
+                            }
+                        )
                 raw_output = result.raw if hasattr(result, "raw") else str(result)
             except Exception as e:
                 self.log(f"   ❌ Writer 一括生成エラー: {e}", level="error")
                 raw_output = f"# エラー\nレポートの執筆中にエラーが発生しました: {e}"
             self.state.final_report = raw_output
             self.state.chapter_drafts = [raw_output]
-            
+
             elapsed = time.time() - start_t
             self.state.execution_times["Writer"] = self.state.execution_times.get("Writer", 0) + elapsed
             return raw_output
@@ -593,9 +667,8 @@ class DeepResearchFlow(Flow[ResearchState]):
         self.log(f"   📑 {len(chapters)}章を段階的に並列執筆します")
         chapter_drafts = [""] * len(chapters) # 結果格納用リスト
 
-        # 複数章を並列で実行
-        is_online = os.environ.get("DEEP_RESEARCH_ONLINE") == "1"
-        worker_limit = 2 if is_online else 1  # ローカルは1に固定
+        # 指定された並列数を使用
+        worker_limit = self.max_workers
         
         self.log(f"   ⚙️ {len(chapters)}章を最大 {worker_limit} 並列で段階的に執筆します (レートリミット回避)")
         
@@ -627,68 +700,80 @@ class DeepResearchFlow(Flow[ResearchState]):
                 "上記を最終レポートとして統合せよ。"
             )
 
-            @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_writer_integrate():
-                return self.crew_instance.writing_crew().kickoff(
-                    inputs={
-                        "topic": self.state.topic,
-                        "write_instruction": integration_instruction,
-                        "quality_requirements": quality_reqs,
-                        "fetched_urls_list": fetched_urls_str,
-                    }
-                )
-
+            cfg = self._get_retry_config()
             try:
-                result = _kickoff_writer_integrate()
+                for attempt in Retrying(
+                    wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]), 
+                    stop=stop_after_attempt(cfg["attempts"]), 
+                    reraise=True
+                ):
+                    with attempt:
+                        result = self.crew_instance.writing_crew().kickoff(
+                            inputs={
+                                "topic": self.state.topic,
+                                "write_instruction": integration_instruction,
+                                "quality_requirements": quality_reqs,
+                                "fetched_urls_list": fetched_urls_str,
+                            }
+                        )
                 self.state.final_report = result.raw if hasattr(result, "raw") else str(result)
             except Exception as e:
-                print(f"   ❌ 統合パスエラー: {e}")
+                self.log(f"   ❌ 統合パスエラー: {e}", level="error")
                 self.state.final_report = f"# エラー (統合パス)\n\n{combined}"
 
         # ====== [Phase 4] Editorial Review (推敲ループ) ======
-        if os.environ.get("DEEP_RESEARCH_ADVANCED") == "1":
-            print("\n🧐 [Editor] 最終レポート案の品質監査を実行します...")
-            
-            @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-            def _kickoff_editor(draft):
-                return self.crew_instance.editor_crew().kickoff(
-                    inputs={
-                        "topic": self.state.topic,
-                        "draft_report": draft,
-                    }
-                )
-                
+        if self.state.is_advanced:
+            self.log("\n🧐 [Editor] 最終レポート案の品質監査を実行します...")
+
             draft = self.state.final_report
+            cfg = self._get_retry_config()
             try:
-                editor_res = _kickoff_editor(draft)
+                for attempt in Retrying(
+                    wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]),
+                    stop=stop_after_attempt(cfg["attempts"]),
+                    reraise=True
+                ):
+                    with attempt:
+                        editor_res = self.crew_instance.editor_crew().kickoff(
+                            inputs={
+                                "topic": self.state.topic,
+                                "draft_report": draft,
+                            }
+                        )
                 editor_text = editor_res.raw if hasattr(editor_res, "raw") else str(editor_res)
-                
-                if "VERDICT: FAIL" in editor_text.upper():
-                    print("   ⚠️ Editor からの指摘 (FAIL): 修正リライトを実行します")
-                    feedback = editor_text.split("FAIL", 1)[-1].strip()
+
+                if VERDICT_FAIL_MARKER in editor_text.upper():
+                    self.log(f"   ⚠️ Editor からの指摘 ({VERDICT_FAIL}): 修正リライトを実行します", level="warning")
+                    feedback = editor_text.split(VERDICT_FAIL, 1)[-1].strip()
                     revise_instruction = (
                         f"以下のレポート草案には編集長からダメ出し(修正指示)が入りました。\n"
                         f"指摘に厳密に従い、該当部分を修正して完全なレポートを再出力せよ。\n\n"
                         f"【編集長からの指摘】\n{feedback}\n\n"
                         f"【現在のドラフト】\n{draft}"
                     )
-                    
-                    @retry(wait=wait_exponential(multiplier=1, min=2, max=10), stop=stop_after_attempt(3), reraise=True)
-                    def _kickoff_rewrite():
-                        return self.crew_instance.writing_crew().kickoff(
-                            inputs={
-                                "topic": self.state.topic,
-                                "write_instruction": revise_instruction,
-                            }
-                        )
-                    
-                    rewrite_res = _kickoff_rewrite()
-                    self.state.final_report = rewrite_res.raw if hasattr(rewrite_res, "raw") else str(rewrite_res)
-                    print("   ✅ リライト完了")
+                    try:
+                        for attempt in Retrying(
+                            wait=wait_exponential(multiplier=1, min=cfg["min"], max=cfg["max"]),
+                            stop=stop_after_attempt(cfg["attempts"]),
+                            reraise=True
+                        ):
+                            with attempt:
+                                rewrite_res = self.crew_instance.writing_crew().kickoff(
+                                    inputs={
+                                        "topic": self.state.topic,
+                                        "write_instruction": revise_instruction,
+                                        "quality_requirements": quality_reqs,
+                                        "fetched_urls_list": fetched_urls_str,
+                                    }
+                                )
+                        self.state.final_report = rewrite_res.raw if hasattr(rewrite_res, "raw") else str(rewrite_res)
+                        self.log("   ✅ リライト完了")
+                    except Exception as rewrite_err:
+                        self.log(f"   ❌ リライトエラー: {rewrite_err} -> 元のドラフトを採用します", level="error")
                 else:
-                    print("   ✅ Editor 検査 PASS: 問題ありませんでした")
+                    self.log("   ✅ Editor 検査 PASS: 問題ありませんでした")
             except Exception as e:
-                print(f"   ❌ Editor 実行エラー: {e} -> 元のドラフトを採用します")
+                self.log(f"   ❌ Editor 実行エラー: {e} -> 元のドラフトを採用します", level="error")
 
         elapsed = time.time() - start_t
         self.state.execution_times["Writer"] = self.state.execution_times.get("Writer", 0) + elapsed
@@ -701,13 +786,11 @@ class DeepResearchFlow(Flow[ResearchState]):
     def validate_sources(self):
         """レポート内の引用URLを検証し、引用番号スタイルに変換 (utilsへ委譲)"""
         self.log("\n🔎 [SourceValidator] ソース信頼性の検証と引用スタイル変換中...")
-        is_strict = os.environ.get("DEEP_RESEARCH_STRICT_SOURCES") == "1"
-        is_light = os.environ.get("DEEP_RESEARCH_LIGHT") == "1"
         self.state.final_report = format_report_references(
             self.state.final_report, 
             self.state.fetched_urls,
-            strict_sources=is_strict,
-            is_light=is_light
+            strict_sources=self.state.is_strict,
+            is_light=self.state.is_light
         )
         return self.state.final_report
 
@@ -811,62 +894,64 @@ def kickoff():
         help="ハルシネーション対策: 検索成功したURL以外からの引用を物理削除する",
     )
     parser.add_argument(
+        "--workers", type=int, default=None,
+        help="並列実行するワーカー数 (デフォルト: 1)",
+    )
+    parser.add_argument(
         "--topic", type=str, default="",
         help="リサーチトピック(省略時は対話式入力)",
     )
 
     args = parser.parse_args()
 
-    # フラグの環境変数へのバインド
-    if args.light:
-        os.environ["DEEP_RESEARCH_LIGHT"] = "1"
-        # 軽量モデルは自動で strict モードを有効にする(CLIで明示的にオフにする機能はない前提)
-        args.strict_sources = True
+    # フラグの決定（環境変数は使わず、ローカル変数で管理）
+    is_light = args.light
+    is_strict = args.strict_sources or args.light  # 軽量モデルは自動で strict
+    is_advanced = args.advanced or args.online
+    is_online = args.online
 
-    if args.strict_sources:
-        os.environ["DEEP_RESEARCH_STRICT_SOURCES"] = "1"
+    if is_advanced:
+        logger.info("🪄 アドバンスドモード作動: (構造化出力 / 情報圧縮 / 推敲ループが有効になります)")
 
-    if args.advanced or args.online:
-        os.environ["DEEP_RESEARCH_ADVANCED"] = "1"
-        print("🪄 アドバンスドモード作動: (構造化出力 / 情報圧縮 / 推敲ループが有効になります)")
-
-    if args.online:
-        # オンラインフラグを環境変数にセット(WebFetchToolなどから参照できるようにするため)
-        os.environ["DEEP_RESEARCH_ONLINE"] = "1"
-        
-        # uv run が .env を自動で環境変数に展開している前提で、存在確認のみを行うかチェック
+    if is_online:
+        # uv run が .env を自動で環境変数に展開している前提で、存在確認のみを行う
         if not os.environ.get("OPENROUTER_API_KEY"):
-            print("❌ OPENROUTER_API_KEY が設定されていません。")
-            print("   .env ファイルに設定してください。")
+            logger.error("❌ OPENROUTER_API_KEY が設定されていません。")
+            logger.error("   .env ファイルに設定してください。")
             sys.exit(1)
 
-        print("🌐 OpenRouter経由でクラウドモデルを使用します。")
+        logger.info("🌐 OpenRouter経由でクラウドモデルを使用します。")
         args.scout = ONLINE_SCOUT_MODEL
         args.commander = ONLINE_COMMANDER_MODEL
         args.worker = ONLINE_WORKER_MODEL
         args.writer = ONLINE_WRITER_MODEL
-    elif args.light:
-        print("⚡ 軽量プロファイル(--light)が指定されました。")
+    elif is_light:
+        logger.info("⚡ 軽量プロファイル(--light)が指定されました。")
         args.scout = "ollama/gemma3n:e2b"
         args.commander = "ollama/gemma3n:e2b"
         args.worker = "ollama/qwen2.5:3b"
         args.writer = "ollama/qwen2.5:3b"
 
-    if args.strict_sources:
-        print("🛡️ 【Strict Sources】検証済み以外の架空URL引用を強制削除します。")
+    if is_strict:
+        logger.info("🛡️ 【Strict Sources】検証済み以外の架空URL引用を強制削除します。")
 
-    print("-" * 60)
-    print(f"🤖 [Scout]     : {args.scout}")
-    print(f"🤖 [Commander] : {args.commander}")
-    print(f"🤖 [Worker]    : {args.worker}")
-    print(f"🤖 [Writer]    : {args.writer}")
-    print("-" * 60)
+    logger.info("-" * 60)
+    logger.info(f"🤖 [Scout]     : {args.scout}")
+    logger.info(f"🤖 [Commander] : {args.commander}")
+    logger.info(f"🤖 [Worker]    : {args.worker}")
+    logger.info(f"🤖 [Writer]    : {args.writer}")
+    logger.info("-" * 60)
 
     flow = DeepResearchFlow(
         scout_model=args.scout,
         commander_model=args.commander,
         worker_model=args.worker,
         writer_model=args.writer,
+        is_online=is_online,
+        is_light=is_light,
+        is_advanced=is_advanced,
+        is_strict=is_strict,
+        max_workers=args.workers,
     )
     # 引数をシリアライズ可能な形で状態に保存
     flow.state.cli_args = vars(args)
