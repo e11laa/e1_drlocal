@@ -2,7 +2,7 @@
  
 [日本語版の説明はこちら](README-ja.md)
 
-*This project is being developed in collaboration with AI, utilizing Google Antigravity.*
+
 
 ## Project Overview
 **e1_drlocal** is a research system built on CrewAI Flows.
